@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/snakewood-core"]
+members = ["crates/snakewood-core", "crates/snakewood-daemon"]
 
 [workspace.package]
 edition = "2021"
