@@ -51,8 +51,13 @@ impl Engine {
     }
 
     /// Dispatch `intent` and fan the resulting presentation out to sessions.
+    ///
+    /// No-op unless `id` is a live session AND the intent acts as that session's
+    /// own actor — a session may only drive the actor it is bound to. This is the
+    /// authorization seam the transports (telnet, MCP) rely on.
     pub fn submit(&mut self, id: SessionId, intent: Intent) {
-        if !self.sessions.contains_key(&id) {
+        let authorized = matches!(self.sessions.get(&id), Some(s) if &s.actor == intent.actor());
+        if !authorized {
             return;
         }
         let result = dispatch(&mut self.realm, intent);
@@ -204,6 +209,22 @@ mod tests {
         let (mut e, _sid, actor) = engine_with_actor();
         e.submit(SessionId(999), Intent::Look { actor });
         assert!(e.poll(SessionId(999)).is_empty());
+    }
+
+    #[test]
+    fn submit_ignores_intent_acting_as_a_different_actor() {
+        // A session bound to "nathan" cannot drive some other actor.
+        let (mut e, sid, _actor) = engine_with_actor();
+        let other = EntityId::new("snakewood/pc/impostor").unwrap();
+        e.submit(sid, Intent::Move { actor: other.clone(), direction: Direction::North });
+        // The bound actor did not move, the foreign actor is untouched, and the
+        // session received nothing.
+        assert_eq!(
+            e.realm().mob_location(&EntityId::new("snakewood/pc/nathan").unwrap()).map(|r| r.as_str()),
+            Some("snakewood/clearing")
+        );
+        assert!(e.realm().mob_location(&other).is_none());
+        assert!(e.poll(sid).is_empty());
     }
 
     #[test]
