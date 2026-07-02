@@ -127,6 +127,29 @@ impl Engine {
         }
         Ok(())
     }
+
+    /// Configure the on-interval snapshot cadence (seconds of injected time).
+    pub fn set_snapshot_interval(&mut self, secs: i64) {
+        self.snapshot_interval = Some(secs);
+    }
+
+    /// Commit an interval snapshot if the configured interval has elapsed since
+    /// the last one. Returns whether it committed. Driven from the tick loop.
+    pub fn maybe_snapshot(&mut self) -> Result<bool, StoreError> {
+        let now = self.clock.now_unix();
+        let due = matches!(self.snapshot_interval, Some(iv) if now - self.last_snapshot >= iv);
+        if !due {
+            return Ok(false);
+        }
+        let mut committed = false;
+        if let Some(store) = self.store.as_mut() {
+            store.save_realm(&self.realm)?;
+            store.commit("interval snapshot", now)?;
+            committed = true;
+        }
+        self.last_snapshot = now;
+        Ok(committed)
+    }
 }
 
 #[cfg(test)]
@@ -161,6 +184,31 @@ mod tests {
             exits: BTreeMap::new(),
         });
         world
+    }
+
+    struct ArcClock(std::sync::Arc<ManualClock>);
+    impl crate::Clock for ArcClock {
+        fn now_unix(&self) -> i64 {
+            self.0.now_unix()
+        }
+    }
+
+    fn engine_with_store_and_actor(dir: &std::path::Path, start: i64) -> (Engine, SessionId) {
+        let mut realm = Realm::new(world_two_rooms());
+        let mut flags = std::collections::BTreeSet::new();
+        flags.insert(snakewood_core::Flag::Alive);
+        realm.insert_mob(snakewood_core::Mob {
+            id: EntityId::new("snakewood/pc/nathan").unwrap(),
+            name: "Nathan".to_string(),
+            location: EntityId::new("snakewood/clearing").unwrap(),
+            flags,
+            responders: Vec::new(),
+        });
+        let store = GitStore::init(dir).unwrap();
+        let mut e = Engine::new(realm, Box::new(ManualClock::new(start)));
+        e.attach_store(Box::new(store));
+        let sid = e.connect(EntityId::new("snakewood/pc/nathan").unwrap());
+        (e, sid)
     }
 
     fn engine_with_actor() -> (Engine, SessionId, EntityId) {
@@ -373,5 +421,46 @@ mod tests {
     fn checkpoint_without_store_is_ok_noop() {
         let mut e = engine();
         assert!(e.checkpoint("nothing to persist").is_ok());
+    }
+
+    #[test]
+    fn maybe_snapshot_waits_for_the_interval() {
+        let dir = tempdir().unwrap();
+        let mut realm = Realm::new(world_two_rooms());
+        let mut flags = std::collections::BTreeSet::new();
+        flags.insert(snakewood_core::Flag::Alive);
+        realm.insert_mob(snakewood_core::Mob {
+            id: EntityId::new("snakewood/pc/nathan").unwrap(),
+            name: "Nathan".to_string(),
+            location: EntityId::new("snakewood/clearing").unwrap(),
+            flags,
+            responders: Vec::new(),
+        });
+        // Use a ManualClock we can advance; move it into the engine but keep a raw
+        // control path by advancing before/after via a shared approach:
+        let control = std::sync::Arc::new(ManualClock::new(0));
+        let mut e = Engine::new(realm, Box::new(ArcClock(control.clone())));
+        let dir_store = GitStore::init(dir.path()).unwrap();
+        e.attach_store(Box::new(dir_store));
+        e.set_snapshot_interval(3600);
+
+        // Not enough time elapsed -> no snapshot.
+        control.advance(100);
+        assert!(!e.maybe_snapshot().unwrap());
+
+        // Cross the interval -> snapshot commits.
+        control.advance(3600);
+        assert!(e.maybe_snapshot().unwrap());
+
+        // Immediately after, not due again.
+        assert!(!e.maybe_snapshot().unwrap());
+    }
+
+    #[test]
+    fn maybe_snapshot_without_interval_is_false() {
+        let dir = tempdir().unwrap();
+        let (mut e, _sid) = engine_with_store_and_actor(dir.path(), 0);
+        // No interval configured.
+        assert!(!e.maybe_snapshot().unwrap());
     }
 }
