@@ -103,13 +103,14 @@ impl WorldStore for GitStore {
 
     fn commit(&mut self, message: &str, epoch_seconds: i64) -> Result<CommitId, StoreError> {
         let mut index = self.repo.index().map_err(git_err)?;
-        // NOTE: add_all stages new and modified files but does NOT stage
-        // deletions or renames. Harmless now (there is no delete/rename path),
-        // but when Stage 2/3 adds room removal/rename this must switch to
-        // update_all or explicit removal so deleted entities leave the tree.
         index
             .add_all(["*"].iter(), IndexAddOption::DEFAULT, None)
             .map_err(git_err)?;
+        // add_all stages new + modified files but not deletions of tracked
+        // files; update_all removes index entries whose working-tree file is
+        // gone, so a remove_mob/remove_room followed by commit actually drops
+        // the entity from the committed tree.
+        index.update_all(["*"].iter(), None).map_err(git_err)?;
         index.write().map_err(git_err)?;
         let tree_oid = index.write_tree().map_err(git_err)?;
         let tree = self.repo.find_tree(tree_oid).map_err(git_err)?;
@@ -313,5 +314,43 @@ mod tests {
         assert_eq!(reloaded.world, realm.world);
         assert_eq!(reloaded.mobs, realm.mobs);
         assert_eq!(reloaded.rules, realm.rules);
+    }
+
+    #[test]
+    fn commit_stages_deletions() {
+        use crate::{Flag, Mob};
+        use std::collections::BTreeSet;
+
+        let dir = tempdir().unwrap();
+        let mut store = GitStore::init(dir.path()).unwrap();
+        let mut flags = BTreeSet::new();
+        flags.insert(Flag::Alive);
+        let goblin = Mob {
+            id: EntityId::new("snakewood/mob/goblin#1").unwrap(),
+            name: "a goblin".to_string(),
+            location: EntityId::new("snakewood/clearing").unwrap(),
+            flags,
+            responders: Vec::new(),
+        };
+        store.save_mob(&goblin).unwrap();
+        store.commit("spawn goblin", 1_700_000_000).unwrap();
+
+        // Remove and commit the deletion.
+        store.remove_mob(&goblin.id).unwrap();
+        store.commit("goblin dies", 1_700_000_100).unwrap();
+
+        // A fresh CLONE of the committed repo must not contain the goblin —
+        // proving the deletion was staged into the tree, not just the working dir.
+        let clone_dir = tempdir().unwrap();
+        let repo_url = dir.path().to_str().unwrap();
+        git2::Repository::clone(repo_url, clone_dir.path()).unwrap();
+        let reloaded = GitStore::init(clone_dir.path())
+            .unwrap()
+            .load_mobs()
+            .unwrap();
+        assert!(
+            reloaded.is_empty(),
+            "deleted mob must be gone from committed tree: {reloaded:?}"
+        );
     }
 }
