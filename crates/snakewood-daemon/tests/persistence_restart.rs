@@ -1,8 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use snakewood_core::{
-    Direction, EntityId, Flag, GitStore, Intent, Mob, Realm, Room, World,
-};
+use snakewood_core::{Direction, EntityId, Flag, GitStore, Intent, Mob, Realm, Room, World};
 use snakewood_daemon::{Engine, ManualClock, SessionId};
 
 fn id(s: &str) -> EntityId {
@@ -52,8 +50,20 @@ fn live_position_survives_a_daemon_restart() {
         let mut engine = Engine::new(seeded_realm(), Box::new(ManualClock::new(1000)));
         engine.attach_store(Box::new(store));
         let sid = engine.connect(id("snakewood/pc/nathan"));
-        engine.submit(sid, Intent::Move { actor: id("snakewood/pc/nathan"), direction: Direction::North });
-        assert_eq!(engine.realm().mob_location(&id("snakewood/pc/nathan")).map(|r| r.as_str()), Some("snakewood/old-well"));
+        engine.submit(
+            sid,
+            Intent::Move {
+                actor: id("snakewood/pc/nathan"),
+                direction: Direction::North,
+            },
+        );
+        assert_eq!(
+            engine
+                .realm()
+                .mob_location(&id("snakewood/pc/nathan"))
+                .map(|r| r.as_str()),
+            Some("snakewood/old-well")
+        );
         engine.checkpoint("nathan walked north").unwrap();
     }
 
@@ -61,7 +71,10 @@ fn live_position_survives_a_daemon_restart() {
     let store = GitStore::init(dir.path()).unwrap();
     let engine = Engine::boot(Box::new(store), Box::new(ManualClock::new(5000))).unwrap();
     assert_eq!(
-        engine.realm().mob_location(&id("snakewood/pc/nathan")).map(|r| r.as_str()),
+        engine
+            .realm()
+            .mob_location(&id("snakewood/pc/nathan"))
+            .map(|r| r.as_str()),
         Some("snakewood/old-well")
     );
     assert_eq!(engine.session_actor(SessionId(0)), None);

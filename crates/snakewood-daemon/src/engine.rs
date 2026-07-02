@@ -400,17 +400,22 @@ mod tests {
             let mut e = Engine::new(realm, Box::new(ManualClock::new(1000)));
             e.attach_store(Box::new(store));
             let sid = e.connect(EntityId::new("snakewood/pc/nathan").unwrap());
-            e.submit(sid, Intent::Move {
-                actor: EntityId::new("snakewood/pc/nathan").unwrap(),
-                direction: Direction::North,
-            });
+            e.submit(
+                sid,
+                Intent::Move {
+                    actor: EntityId::new("snakewood/pc/nathan").unwrap(),
+                    direction: Direction::North,
+                },
+            );
             e.checkpoint("player moved north").unwrap();
         }
         // Second engine: boot from the same dir — the actor is at the moved location.
         let store = GitStore::init(dir.path()).unwrap();
         let e2 = Engine::boot(Box::new(store), Box::new(ManualClock::new(2000))).unwrap();
         assert_eq!(
-            e2.realm().mob_location(&EntityId::new("snakewood/pc/nathan").unwrap()).map(|r| r.as_str()),
+            e2.realm()
+                .mob_location(&EntityId::new("snakewood/pc/nathan").unwrap())
+                .map(|r| r.as_str()),
             Some("snakewood/old-well")
         );
         // Sessions are runtime-only; a freshly booted engine has none.
