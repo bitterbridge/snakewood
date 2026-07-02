@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["crates/snakewood-core"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+ron = "0.8"
+git2 = "0.19"
+walkdir = "2"
+proptest = "1"
+tempfile = "3"
