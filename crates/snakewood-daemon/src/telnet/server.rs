@@ -37,50 +37,58 @@ async fn handle_connection(
     let (read_half, mut write_half) = stream.into_split();
     let mut lines = BufReader::new(read_half).lines();
 
-    // Spawn the player and greet with a Look (borrow dropped before any await).
-    let (sid, actor, greeting) = {
+    // Spawn the player up front so cleanup can always run.
+    let (sid, actor) = {
         let mut e = engine.borrow_mut();
-        let (sid, actor) = spawn_player(&mut e, &start_room, seq);
-        e.submit(
-            sid,
-            Intent::Look {
-                actor: actor.clone(),
-            },
-        );
-        let greeting = render(&e.poll(sid));
-        (sid, actor, greeting)
+        spawn_player(&mut e, &start_room, seq)
     };
-    write_half.write_all(greeting.as_bytes()).await?;
 
-    // Read commands until quit or EOF.
-    loop {
-        let line = match lines.next_line().await? {
-            Some(line) => line,
-            None => break,
-        };
-        if is_quit(&line) {
-            break;
-        }
-        let reply = {
+    // Run the whole session; capture the result so we can always clean up.
+    let result: std::io::Result<()> = async {
+        // greeting (Look) — borrow dropped before the write
+        let greeting = {
             let mut e = engine.borrow_mut();
-            match parse(&line, &actor) {
-                Some(intent) => {
-                    e.submit(sid, intent);
-                    render(&e.poll(sid))
-                }
-                None if line.trim().is_empty() => String::new(),
-                None => "What?\r\n".to_string(),
-            }
+            e.submit(
+                sid,
+                Intent::Look {
+                    actor: actor.clone(),
+                },
+            );
+            render(&e.poll(sid))
         };
-        if !reply.is_empty() {
-            write_half.write_all(reply.as_bytes()).await?;
-        }
-    }
+        write_half.write_all(greeting.as_bytes()).await?;
 
-    // Clean up: despawn the player.
+        loop {
+            let line = match lines.next_line().await? {
+                Some(line) => line,
+                None => break,
+            };
+            if is_quit(&line) {
+                break;
+            }
+            let reply = {
+                let mut e = engine.borrow_mut();
+                match parse(&line, &actor) {
+                    Some(intent) => {
+                        e.submit(sid, intent);
+                        render(&e.poll(sid))
+                    }
+                    None if line.trim().is_empty() => String::new(),
+                    None => "What?\r\n".to_string(),
+                }
+            };
+            if !reply.is_empty() {
+                write_half.write_all(reply.as_bytes()).await?;
+            }
+        }
+        Ok(())
+    }
+    .await;
+
+    // ALWAYS despawn, regardless of clean exit or I/O error.
     {
         let mut e = engine.borrow_mut();
         despawn_player(&mut e, sid, &actor);
     }
-    Ok(())
+    result
 }
