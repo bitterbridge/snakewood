@@ -2,6 +2,8 @@
 
 pub mod handler;
 pub mod protocol;
+pub mod server;
 
 pub use handler::handle_api_request;
 pub use protocol::{ApiRequest, ApiResponse};
+pub use server::serve_api;
