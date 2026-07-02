@@ -11,6 +11,20 @@ pub enum Direction {
     Down,
 }
 
+impl Direction {
+    /// The reverse direction (for linking exits both ways).
+    pub fn opposite(&self) -> Direction {
+        match self {
+            Direction::North => Direction::South,
+            Direction::South => Direction::North,
+            Direction::East => Direction::West,
+            Direction::West => Direction::East,
+            Direction::Up => Direction::Down,
+            Direction::Down => Direction::Up,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -20,5 +34,15 @@ mod tests {
         let mut v = vec![Direction::Down, Direction::North, Direction::East];
         v.sort();
         assert_eq!(v, vec![Direction::North, Direction::East, Direction::Down]);
+    }
+
+    #[test]
+    fn opposite_pairs() {
+        assert_eq!(Direction::North.opposite(), Direction::South);
+        assert_eq!(Direction::South.opposite(), Direction::North);
+        assert_eq!(Direction::East.opposite(), Direction::West);
+        assert_eq!(Direction::West.opposite(), Direction::East);
+        assert_eq!(Direction::Up.opposite(), Direction::Down);
+        assert_eq!(Direction::Down.opposite(), Direction::Up);
     }
 }
