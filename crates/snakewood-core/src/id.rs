@@ -25,7 +25,10 @@ impl EntityId {
             return Err(IdError::LeadingOrTrailingSlash);
         }
         for c in s.chars() {
-            let ok = c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '/' | '_' | '-');
+            // '#' separates a prototype path from an instance serial, e.g.
+            // "snakewood/mob/orc#42" (see spec: instance ids are `proto-id#serial`).
+            let ok =
+                c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '/' | '_' | '-' | '#');
             if !ok {
                 return Err(IdError::InvalidChar(c));
             }
@@ -75,6 +78,14 @@ mod tests {
         let id = EntityId::new("snakewood/mob/goblin").unwrap();
         assert_eq!(id.zone(), "snakewood");
         assert_eq!(id.name(), "mob/goblin");
+    }
+
+    #[test]
+    fn accepts_instance_serial_with_hash() {
+        // Instance ids use `proto-id#serial` (spec §3.2).
+        let id = EntityId::new("snakewood/mob/goblin#42").unwrap();
+        assert_eq!(id.zone(), "snakewood");
+        assert_eq!(id.name(), "mob/goblin#42");
     }
 
     #[test]

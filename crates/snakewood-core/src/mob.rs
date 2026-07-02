@@ -38,7 +38,7 @@ mod tests {
         flags.insert(Flag::Alive);
         flags.insert(Flag::Conscious);
         Mob {
-            id: EntityId::new("snakewood/mob/goblin-1").unwrap(),
+            id: EntityId::new("snakewood/mob/goblin#1").unwrap(),
             name: "a snakewood goblin".to_string(),
             location: EntityId::new("snakewood/clearing").unwrap(),
             flags,
