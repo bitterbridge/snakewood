@@ -216,11 +216,19 @@ mod tests {
         // A session bound to "nathan" cannot drive some other actor.
         let (mut e, sid, _actor) = engine_with_actor();
         let other = EntityId::new("snakewood/pc/impostor").unwrap();
-        e.submit(sid, Intent::Move { actor: other.clone(), direction: Direction::North });
+        e.submit(
+            sid,
+            Intent::Move {
+                actor: other.clone(),
+                direction: Direction::North,
+            },
+        );
         // The bound actor did not move, the foreign actor is untouched, and the
         // session received nothing.
         assert_eq!(
-            e.realm().mob_location(&EntityId::new("snakewood/pc/nathan").unwrap()).map(|r| r.as_str()),
+            e.realm()
+                .mob_location(&EntityId::new("snakewood/pc/nathan").unwrap())
+                .map(|r| r.as_str()),
             Some("snakewood/clearing")
         );
         assert!(e.realm().mob_location(&other).is_none());

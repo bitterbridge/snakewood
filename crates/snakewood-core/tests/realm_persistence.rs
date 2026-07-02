@@ -1,9 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use snakewood_core::fabric::{Outcome, Rule, Trigger};
-use snakewood_core::{
-    Direction, EntityId, Flag, GitStore, Mob, Realm, Room, World, WorldStore,
-};
+use snakewood_core::{Direction, EntityId, Flag, GitStore, Mob, Realm, Room, World, WorldStore};
 
 fn id(s: &str) -> EntityId {
     EntityId::new(s).unwrap()
