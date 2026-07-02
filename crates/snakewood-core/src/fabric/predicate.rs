@@ -17,7 +17,11 @@ pub enum Predicate {
     Conscious(Party),
 }
 
-fn resolve<'a>(party: Party, self_id: Option<&'a EntityId>, actor: &'a EntityId) -> Option<&'a EntityId> {
+fn resolve<'a>(
+    party: Party,
+    self_id: Option<&'a EntityId>,
+    actor: &'a EntityId,
+) -> Option<&'a EntityId> {
     match party {
         Party::Actor => Some(actor),
         Party::SelfMob => self_id,
@@ -70,24 +74,44 @@ mod tests {
     #[test]
     fn self_alive_true_when_alive() {
         let (realm, goblin, actor) = realm_with_goblin(true, true);
-        assert!(eval(&realm, &Predicate::Alive(Party::SelfMob), Some(&goblin), &actor));
+        assert!(eval(
+            &realm,
+            &Predicate::Alive(Party::SelfMob),
+            Some(&goblin),
+            &actor
+        ));
     }
 
     #[test]
     fn self_alive_false_when_dead() {
         let (realm, goblin, actor) = realm_with_goblin(false, true);
-        assert!(!eval(&realm, &Predicate::Alive(Party::SelfMob), Some(&goblin), &actor));
+        assert!(!eval(
+            &realm,
+            &Predicate::Alive(Party::SelfMob),
+            Some(&goblin),
+            &actor
+        ));
     }
 
     #[test]
     fn self_predicate_false_when_no_self_id() {
         let (realm, _goblin, actor) = realm_with_goblin(true, true);
-        assert!(!eval(&realm, &Predicate::Alive(Party::SelfMob), None, &actor));
+        assert!(!eval(
+            &realm,
+            &Predicate::Alive(Party::SelfMob),
+            None,
+            &actor
+        ));
     }
 
     #[test]
     fn conscious_reflects_flag() {
         let (realm, goblin, actor) = realm_with_goblin(true, false);
-        assert!(!eval(&realm, &Predicate::Conscious(Party::SelfMob), Some(&goblin), &actor));
+        assert!(!eval(
+            &realm,
+            &Predicate::Conscious(Party::SelfMob),
+            Some(&goblin),
+            &actor
+        ));
     }
 }

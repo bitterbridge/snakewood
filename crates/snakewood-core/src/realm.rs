@@ -71,7 +71,11 @@ mod tests {
         realm.insert_mob(mob_at("snakewood/mob/c#1", "snakewood/old-well"));
 
         let clearing = EntityId::new("snakewood/clearing").unwrap();
-        let here: Vec<&str> = realm.mobs_in_room(&clearing).iter().map(|m| m.id.as_str()).collect();
+        let here: Vec<&str> = realm
+            .mobs_in_room(&clearing)
+            .iter()
+            .map(|m| m.id.as_str())
+            .collect();
         // BTreeMap iteration is sorted, so a before b; c is elsewhere.
         assert_eq!(here, vec!["snakewood/mob/a#1", "snakewood/mob/b#1"]);
     }
@@ -81,6 +85,9 @@ mod tests {
         let mut realm = Realm::new(World::default());
         realm.insert_mob(mob_at("snakewood/mob/a#1", "snakewood/clearing"));
         let a = EntityId::new("snakewood/mob/a#1").unwrap();
-        assert_eq!(realm.mob_location(&a).map(|r| r.as_str()), Some("snakewood/clearing"));
+        assert_eq!(
+            realm.mob_location(&a).map(|r| r.as_str()),
+            Some("snakewood/clearing")
+        );
     }
 }

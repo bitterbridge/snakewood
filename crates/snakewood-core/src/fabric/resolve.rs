@@ -29,7 +29,9 @@ fn more_salient(a: &Candidate, b: &Candidate) -> bool {
 
 /// Most salient candidate in `candidates`, or None if empty.
 pub fn salient(candidates: &[Candidate]) -> Option<&Candidate> {
-    candidates.iter().reduce(|best, c| if more_salient(c, best) { c } else { best })
+    candidates
+        .iter()
+        .reduce(|best, c| if more_salient(c, best) { c } else { best })
 }
 
 /// Set-based outcome. Deny beats Traverse beats nothing.
@@ -44,7 +46,9 @@ pub fn resolve(candidates: &[Candidate]) -> Decision {
         .collect();
     if let Some(winner) = salient(&traversers) {
         if let Outcome::Traverse(dest) = &winner.outcome {
-            return Decision::Allowed { destination: dest.clone() };
+            return Decision::Allowed {
+                destination: dest.clone(),
+            };
         }
     }
     Decision::Unresolved
@@ -89,7 +93,9 @@ mod tests {
         let cands = vec![traverse(Band::Structure, 0, None, "snakewood/old-well")];
         assert_eq!(
             resolve(&cands),
-            Decision::Allowed { destination: EntityId::new("snakewood/old-well").unwrap() }
+            Decision::Allowed {
+                destination: EntityId::new("snakewood/old-well").unwrap()
+            }
         );
     }
 
@@ -126,11 +132,18 @@ mod tests {
         // `salient(&traversers)`.
         let cands = vec![
             traverse(Band::Structure, 0, None, "snakewood/via-structure"),
-            traverse(Band::Participant, 0, Some("snakewood/mob/guide#1"), "snakewood/via-participant"),
+            traverse(
+                Band::Participant,
+                0,
+                Some("snakewood/mob/guide#1"),
+                "snakewood/via-participant",
+            ),
         ];
         assert_eq!(
             resolve(&cands),
-            Decision::Allowed { destination: EntityId::new("snakewood/via-participant").unwrap() }
+            Decision::Allowed {
+                destination: EntityId::new("snakewood/via-participant").unwrap()
+            }
         );
     }
 }

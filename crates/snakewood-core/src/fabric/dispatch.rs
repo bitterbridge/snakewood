@@ -32,12 +32,18 @@ fn apply_effects(cand: &Candidate, actor: &EntityId, out: &mut Vec<(EntityId, Pr
 }
 
 /// Build the semantic view of a room for `viewer` (excludes the viewer from occupants).
-fn room_presentation(realm: &Realm, room_id: &EntityId, viewer: &EntityId) -> Vec<PresentationNode> {
+fn room_presentation(
+    realm: &Realm,
+    room_id: &EntityId,
+    viewer: &EntityId,
+) -> Vec<PresentationNode> {
     let mut nodes = Vec::new();
     if let Some(room) = realm.world.room(room_id) {
         nodes.push(PresentationNode::RoomName(room.name.clone()));
         nodes.push(PresentationNode::RoomDescription(room.description.clone()));
-        nodes.push(PresentationNode::Exits(room.exits.keys().cloned().collect()));
+        nodes.push(PresentationNode::Exits(
+            room.exits.keys().cloned().collect(),
+        ));
         let mut occupants: Vec<String> = realm
             .mobs_in_room(room_id)
             .iter()
@@ -59,7 +65,10 @@ pub fn dispatch(realm: &mut Realm, intent: Intent) -> Dispatch {
         Intent::Look { .. } => {
             // Look is not guarded in Stage 2; it commits a Looked event + view.
             if let Some(room_id) = realm.mob_location(&actor).cloned() {
-                out.events.push(Event::Looked { actor: actor.clone(), room: room_id.clone() });
+                out.events.push(Event::Looked {
+                    actor: actor.clone(),
+                    room: room_id.clone(),
+                });
                 for node in room_presentation(realm, &room_id, &actor) {
                     out.messages.push((actor.clone(), node));
                 }
@@ -75,8 +84,11 @@ pub fn dispatch(realm: &mut Realm, intent: Intent) -> Dispatch {
             match resolve(&candidates) {
                 Decision::Denied => {
                     // salient among the blockers narrates/reacts
-                    let blockers: Vec<Candidate> =
-                        candidates.iter().filter(|c| c.outcome == Outcome::Block).cloned().collect();
+                    let blockers: Vec<Candidate> = candidates
+                        .iter()
+                        .filter(|c| c.outcome == Outcome::Block)
+                        .cloned()
+                        .collect();
                     if let Some(s) = salient(&blockers) {
                         apply_effects(s, &actor, &mut out.messages);
                     }
@@ -128,7 +140,10 @@ mod tests {
 
     fn world_two_rooms() -> World {
         let mut exits = BTreeMap::new();
-        exits.insert(Direction::North, EntityId::new("snakewood/old-well").unwrap());
+        exits.insert(
+            Direction::North,
+            EntityId::new("snakewood/old-well").unwrap(),
+        );
         let mut world = World::default();
         world.insert_room(Room {
             id: EntityId::new("snakewood/clearing").unwrap(),
@@ -166,22 +181,43 @@ mod tests {
     #[test]
     fn move_through_open_exit_relocates_and_emits_moved() {
         let mut realm = realm_with_actor();
-        let out = dispatch(&mut realm, Intent::Move { actor: actor_id(), direction: Direction::North });
-        assert_eq!(realm.mob_location(&actor_id()).map(|r| r.as_str()), Some("snakewood/old-well"));
+        let out = dispatch(
+            &mut realm,
+            Intent::Move {
+                actor: actor_id(),
+                direction: Direction::North,
+            },
+        );
+        assert_eq!(
+            realm.mob_location(&actor_id()).map(|r| r.as_str()),
+            Some("snakewood/old-well")
+        );
         assert!(out.events.contains(&Event::Moved {
             actor: actor_id(),
             from: EntityId::new("snakewood/clearing").unwrap(),
             to: EntityId::new("snakewood/old-well").unwrap(),
         }));
         // arrival view names the new room
-        assert!(out.messages.iter().any(|(_, n)| *n == PresentationNode::RoomName("The Old Well".to_string())));
+        assert!(out
+            .messages
+            .iter()
+            .any(|(_, n)| *n == PresentationNode::RoomName("The Old Well".to_string())));
     }
 
     #[test]
     fn move_with_no_exit_is_denied_with_fallback_message() {
         let mut realm = realm_with_actor();
-        let out = dispatch(&mut realm, Intent::Move { actor: actor_id(), direction: Direction::South });
-        assert_eq!(realm.mob_location(&actor_id()).map(|r| r.as_str()), Some("snakewood/clearing"));
+        let out = dispatch(
+            &mut realm,
+            Intent::Move {
+                actor: actor_id(),
+                direction: Direction::South,
+            },
+        );
+        assert_eq!(
+            realm.mob_location(&actor_id()).map(|r| r.as_str()),
+            Some("snakewood/clearing")
+        );
         assert!(out.messages.iter().any(|(_, n)| *n
             == PresentationNode::Denied("You see no exit in that direction.".to_string())));
         assert!(out.events.is_empty());
@@ -195,6 +231,9 @@ mod tests {
             actor: actor_id(),
             room: EntityId::new("snakewood/clearing").unwrap(),
         }));
-        assert!(out.messages.iter().any(|(_, n)| *n == PresentationNode::RoomName("Snakewood Clearing".to_string())));
+        assert!(out
+            .messages
+            .iter()
+            .any(|(_, n)| *n == PresentationNode::RoomName("Snakewood Clearing".to_string())));
     }
 }

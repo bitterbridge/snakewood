@@ -17,7 +17,9 @@ fn require_passes(
     self_id: Option<&EntityId>,
     actor: &EntityId,
 ) -> bool {
-    require.iter().all(|p| eval_predicate(realm, p, self_id, actor))
+    require
+        .iter()
+        .all(|p| eval_predicate(realm, p, self_id, actor))
 }
 
 /// Compute candidate handlers for `intent` from current state. Never cached.
@@ -90,7 +92,10 @@ mod tests {
 
     fn world_two_rooms() -> World {
         let mut exits = BTreeMap::new();
-        exits.insert(Direction::North, EntityId::new("snakewood/old-well").unwrap());
+        exits.insert(
+            Direction::North,
+            EntityId::new("snakewood/old-well").unwrap(),
+        );
         let mut world = World::default();
         world.insert_room(Room {
             id: EntityId::new("snakewood/clearing").unwrap(),
@@ -136,8 +141,14 @@ mod tests {
             flags,
             responders: vec![Responder {
                 on: Trigger::Move(Direction::North),
-                require: vec![Predicate::Alive(Party::SelfMob), Predicate::Conscious(Party::SelfMob)],
-                effects: vec![Effect::Narrate(Party::Actor, "The goblin blocks your way north.".to_string())],
+                require: vec![
+                    Predicate::Alive(Party::SelfMob),
+                    Predicate::Conscious(Party::SelfMob),
+                ],
+                effects: vec![Effect::Narrate(
+                    Party::Actor,
+                    "The goblin blocks your way north.".to_string(),
+                )],
                 outcome: Outcome::Block,
                 priority: 0,
             }],
@@ -148,11 +159,17 @@ mod tests {
     fn gathers_sugar_exit_as_structure_traverse() {
         let mut realm = Realm::new(world_two_rooms());
         place_actor(&mut realm);
-        let intent = Intent::Move { actor: actor_id(), direction: Direction::North };
+        let intent = Intent::Move {
+            actor: actor_id(),
+            direction: Direction::North,
+        };
         let got = gather(&realm, &intent);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].band, Band::Structure);
-        assert_eq!(got[0].outcome, Outcome::Traverse(EntityId::new("snakewood/old-well").unwrap()));
+        assert_eq!(
+            got[0].outcome,
+            Outcome::Traverse(EntityId::new("snakewood/old-well").unwrap())
+        );
     }
 
     #[test]
@@ -160,11 +177,16 @@ mod tests {
         let mut realm = Realm::new(world_two_rooms());
         place_actor(&mut realm);
         realm.insert_mob(blocking_goblin(true));
-        let intent = Intent::Move { actor: actor_id(), direction: Direction::North };
+        let intent = Intent::Move {
+            actor: actor_id(),
+            direction: Direction::North,
+        };
         let got = gather(&realm, &intent);
         // sugar exit (Structure) + goblin block (Participant)
         assert_eq!(got.len(), 2);
-        assert!(got.iter().any(|c| c.band == Band::Participant && c.outcome == Outcome::Block));
+        assert!(got
+            .iter()
+            .any(|c| c.band == Band::Participant && c.outcome == Outcome::Block));
     }
 
     #[test]
@@ -172,7 +194,10 @@ mod tests {
         let mut realm = Realm::new(world_two_rooms());
         place_actor(&mut realm);
         realm.insert_mob(blocking_goblin(false)); // no Alive/Conscious flags
-        let intent = Intent::Move { actor: actor_id(), direction: Direction::North };
+        let intent = Intent::Move {
+            actor: actor_id(),
+            direction: Direction::North,
+        };
         let got = gather(&realm, &intent);
         // only the sugar exit; the goblin's require predicates fail
         assert_eq!(got.len(), 1);

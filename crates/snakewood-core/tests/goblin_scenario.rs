@@ -51,8 +51,14 @@ fn goblin() -> Mob {
         flags,
         responders: vec![Responder {
             on: Trigger::Move(Direction::North),
-            require: vec![Predicate::Alive(Party::SelfMob), Predicate::Conscious(Party::SelfMob)],
-            effects: vec![Effect::Narrate(Party::Actor, "The goblin blocks your way north.".to_string())],
+            require: vec![
+                Predicate::Alive(Party::SelfMob),
+                Predicate::Conscious(Party::SelfMob),
+            ],
+            effects: vec![Effect::Narrate(
+                Party::Actor,
+                "The goblin blocks your way north.".to_string(),
+            )],
             outcome: Outcome::Block,
             priority: 0,
         }],
@@ -69,10 +75,21 @@ fn realm() -> Realm {
 #[test]
 fn conscious_goblin_blocks_north_with_salient_message() {
     let mut realm = realm();
-    let out = dispatch(&mut realm, Intent::Move { actor: id("snakewood/pc/nathan"), direction: Direction::North });
+    let out = dispatch(
+        &mut realm,
+        Intent::Move {
+            actor: id("snakewood/pc/nathan"),
+            direction: Direction::North,
+        },
+    );
 
     // Actor did NOT move.
-    assert_eq!(realm.mob_location(&id("snakewood/pc/nathan")).map(|r| r.as_str()), Some("snakewood/clearing"));
+    assert_eq!(
+        realm
+            .mob_location(&id("snakewood/pc/nathan"))
+            .map(|r| r.as_str()),
+        Some("snakewood/clearing")
+    );
     // No Moved event.
     assert!(!out.events.iter().any(|e| matches!(e, Event::Moved { .. })));
     // The salient (Participant) narration is the goblin's, delivered to the actor.
@@ -86,17 +103,34 @@ fn conscious_goblin_blocks_north_with_salient_message() {
 fn incapacitated_goblin_stops_blocking_no_wiring_change() {
     let mut realm = realm();
     // Knock the goblin unconscious — pure state change, no subscription edits.
-    realm.mob_mut(&id("snakewood/mob/goblin#1")).unwrap().flags.remove(&Flag::Conscious);
+    realm
+        .mob_mut(&id("snakewood/mob/goblin#1"))
+        .unwrap()
+        .flags
+        .remove(&Flag::Conscious);
 
-    let out = dispatch(&mut realm, Intent::Move { actor: id("snakewood/pc/nathan"), direction: Direction::North });
+    let out = dispatch(
+        &mut realm,
+        Intent::Move {
+            actor: id("snakewood/pc/nathan"),
+            direction: Direction::North,
+        },
+    );
 
     // Now the actor moves through.
-    assert_eq!(realm.mob_location(&id("snakewood/pc/nathan")).map(|r| r.as_str()), Some("snakewood/old-well"));
+    assert_eq!(
+        realm
+            .mob_location(&id("snakewood/pc/nathan"))
+            .map(|r| r.as_str()),
+        Some("snakewood/old-well")
+    );
     assert!(out.events.contains(&Event::Moved {
         actor: id("snakewood/pc/nathan"),
         from: id("snakewood/clearing"),
         to: id("snakewood/old-well"),
     }));
     // The goblin's block message is absent.
-    assert!(!out.messages.iter().any(|(_, n)| *n == PresentationNode::Line("The goblin blocks your way north.".to_string())));
+    assert!(!out.messages.iter().any(
+        |(_, n)| *n == PresentationNode::Line("The goblin blocks your way north.".to_string())
+    ));
 }

@@ -42,14 +42,18 @@ mod tests {
 
     #[test]
     fn any_move_matches_all_moves_but_not_look() {
-        let look = Intent::Look { actor: EntityId::new("snakewood/pc/nathan").unwrap() };
+        let look = Intent::Look {
+            actor: EntityId::new("snakewood/pc/nathan").unwrap(),
+        };
         assert!(Trigger::AnyMove.matches(&move_north()));
         assert!(!Trigger::AnyMove.matches(&look));
     }
 
     #[test]
     fn look_trigger_matches_look() {
-        let look = Intent::Look { actor: EntityId::new("snakewood/pc/nathan").unwrap() };
+        let look = Intent::Look {
+            actor: EntityId::new("snakewood/pc/nathan").unwrap(),
+        };
         assert!(Trigger::Look.matches(&look));
         assert!(!Trigger::Look.matches(&move_north()));
     }
