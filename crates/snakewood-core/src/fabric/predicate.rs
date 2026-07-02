@@ -62,6 +62,7 @@ mod tests {
             name: "goblin".to_string(),
             location: EntityId::new("snakewood/clearing").unwrap(),
             flags,
+            responders: Vec::new(),
         });
         (realm, goblin_id, actor_id)
     }

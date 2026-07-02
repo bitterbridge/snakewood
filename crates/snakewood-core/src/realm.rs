@@ -1,13 +1,15 @@
 use std::collections::BTreeMap;
 
+use crate::fabric::Rule;
 use crate::{EntityId, Mob, World};
 
-/// The fabric's operating context: authored rooms (`world`) plus live `mobs`.
-/// Global `rules` are added in Task 6. Co-presence is derived on demand.
+/// The fabric's operating context: authored rooms (`world`) plus live `mobs`
+/// and global `rules`. Co-presence is derived on demand.
 #[derive(Debug, Clone, Default)]
 pub struct Realm {
     pub world: World,
     pub mobs: BTreeMap<EntityId, Mob>,
+    pub rules: Vec<Rule>,
 }
 
 impl Realm {
@@ -15,6 +17,7 @@ impl Realm {
         Realm {
             world,
             mobs: BTreeMap::new(),
+            rules: Vec::new(),
         }
     }
 
@@ -56,6 +59,7 @@ mod tests {
             name: id.to_string(),
             location: EntityId::new(room).unwrap(),
             flags,
+            responders: Vec::new(),
         }
     }
 

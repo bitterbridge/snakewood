@@ -4,15 +4,17 @@ pub mod direction;
 pub mod fabric;
 pub mod id;
 pub mod mob;
+pub mod presentation;
 pub mod realm;
 pub mod serialize;
 pub mod store;
 pub mod world;
 
 pub use direction::Direction;
-pub use fabric::{Event, Intent};
+pub use fabric::{Band, Effect, Event, Intent, Outcome, Responder, Rule};
 pub use id::{EntityId, IdError};
 pub use mob::{Flag, Mob};
+pub use presentation::PresentationNode;
 pub use realm::Realm;
 pub use serialize::{room_from_ron, room_to_ron};
 pub use store::{CommitId, GitStore, MemoryStore, StoreError, WorldStore};

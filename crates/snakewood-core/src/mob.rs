@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
+use crate::fabric::Responder;
 use crate::EntityId;
 
 /// A boolean state marker on a mob. Guards (predicates) test these.
@@ -12,7 +13,6 @@ pub enum Flag {
 }
 
 /// A live, located creature (both player-characters and NPCs, in Stage 2).
-/// `responders` (data handlers) are added in Task 6 once `Responder` exists.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Mob {
     pub id: EntityId,
@@ -21,6 +21,8 @@ pub struct Mob {
     pub location: EntityId,
     #[serde(default)]
     pub flags: BTreeSet<Flag>,
+    #[serde(default)]
+    pub responders: Vec<Responder>,
 }
 
 impl Mob {
@@ -42,6 +44,7 @@ mod tests {
             name: "a snakewood goblin".to_string(),
             location: EntityId::new("snakewood/clearing").unwrap(),
             flags,
+            responders: Vec::new(),
         }
     }
 
