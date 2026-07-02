@@ -117,4 +117,20 @@ mod tests {
         let s = salient(&cands).unwrap();
         assert_eq!(s.priority, 5);
     }
+
+    #[test]
+    fn resolve_picks_salient_traverser_destination_not_first() {
+        // Two competing open exits: the more-salient (Participant) traverser wins
+        // the destination, even though it is NOT first in the slice. This guards
+        // against a regression that takes `traversers.first()` instead of
+        // `salient(&traversers)`.
+        let cands = vec![
+            traverse(Band::Structure, 0, None, "snakewood/via-structure"),
+            traverse(Band::Participant, 0, Some("snakewood/mob/guide#1"), "snakewood/via-participant"),
+        ];
+        assert_eq!(
+            resolve(&cands),
+            Decision::Allowed { destination: EntityId::new("snakewood/via-participant").unwrap() }
+        );
+    }
 }
