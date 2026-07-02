@@ -72,6 +72,21 @@ impl Engine {
             None => Vec::new(),
         }
     }
+
+    /// Advance the logical tick counter by one; returns the new count.
+    pub fn tick(&mut self) -> u64 {
+        self.tick += 1;
+        self.tick
+    }
+
+    pub fn tick_count(&self) -> u64 {
+        self.tick
+    }
+
+    /// Current injected time in Unix seconds.
+    pub fn now_unix(&self) -> i64 {
+        self.clock.now_unix()
+    }
 }
 
 #[cfg(test)]
@@ -169,5 +184,23 @@ mod tests {
         let (mut e, _sid, actor) = engine_with_actor();
         e.submit(SessionId(999), Intent::Look { actor });
         assert!(e.poll(SessionId(999)).is_empty());
+    }
+
+    #[test]
+    fn tick_advances_counter() {
+        let mut e = engine();
+        assert_eq!(e.tick_count(), 0);
+        assert_eq!(e.tick(), 1);
+        assert_eq!(e.tick(), 2);
+        assert_eq!(e.tick_count(), 2);
+    }
+
+    #[test]
+    fn now_unix_reflects_injected_clock() {
+        let clock = ManualClock::new(500);
+        // Keep a raw pointer-free handle by advancing before moving into the engine.
+        clock.advance(100); // now 600
+        let e = Engine::new(Realm::new(World::default()), Box::new(clock));
+        assert_eq!(e.now_unix(), 600);
     }
 }
