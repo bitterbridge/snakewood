@@ -122,7 +122,10 @@ mod tests {
 
     fn clearing() -> Room {
         let mut exits = BTreeMap::new();
-        exits.insert(Direction::North, EntityId::new("snakewood/old-well").unwrap());
+        exits.insert(
+            Direction::North,
+            EntityId::new("snakewood/old-well").unwrap(),
+        );
         Room {
             id: EntityId::new("snakewood/clearing").unwrap(),
             name: "Snakewood Clearing".to_string(),
@@ -146,7 +149,9 @@ mod tests {
         let mut store = GitStore::init(dir.path()).unwrap();
         store.save_room(&clearing()).unwrap();
         store.save_room(&old_well()).unwrap();
-        store.commit("dig snakewood clearing and old well", 1_700_000_000).unwrap();
+        store
+            .commit("dig snakewood clearing and old well", 1_700_000_000)
+            .unwrap();
 
         // Fresh store over the same directory reloads an identical world.
         let reloaded = GitStore::init(dir.path()).unwrap().load_all().unwrap();
@@ -161,8 +166,13 @@ mod tests {
         let dir = tempdir().unwrap();
         let mut store = GitStore::init(dir.path()).unwrap();
         store.save_room(&clearing()).unwrap();
-        store.commit("dig snakewood clearing", 1_700_000_000).unwrap();
-        assert_eq!(store.commit_log(), vec!["dig snakewood clearing".to_string()]);
+        store
+            .commit("dig snakewood clearing", 1_700_000_000)
+            .unwrap();
+        assert_eq!(
+            store.commit_log(),
+            vec!["dig snakewood clearing".to_string()]
+        );
     }
 
     #[test]

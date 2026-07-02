@@ -14,7 +14,6 @@ fn arb_room(zone: &'static str) -> impl Strategy<Value = Room> {
     (
         name_seg(),
         ".*",
-        ".*",
         prop::collection::btree_map(
             prop_oneof![
                 Just(Direction::North),
@@ -28,7 +27,7 @@ fn arb_room(zone: &'static str) -> impl Strategy<Value = Room> {
             0..6,
         ),
     )
-        .prop_map(move |(name, desc, _extra, exit_names)| {
+        .prop_map(move |(name, desc, exit_names)| {
             let mut exits = BTreeMap::new();
             for (dir, target) in exit_names {
                 exits.insert(dir, EntityId::new(format!("{zone}/{target}")).unwrap());
@@ -67,7 +66,10 @@ fn known_room_matches_golden() {
     use snakewood_core::room_to_ron;
 
     let mut exits = BTreeMap::new();
-    exits.insert(Direction::North, EntityId::new("snakewood/old-well").unwrap());
+    exits.insert(
+        Direction::North,
+        EntityId::new("snakewood/old-well").unwrap(),
+    );
     let room = Room {
         id: EntityId::new("snakewood/clearing").unwrap(),
         name: "Snakewood Clearing".to_string(),
@@ -80,5 +82,9 @@ fn known_room_matches_golden() {
         eprintln!("--- actual room_to_ron output ---\n{actual}\n--- end ---");
     }
     let golden = include_str!("golden/clearing.ron");
-    assert_eq!(actual.trim(), golden.trim(), "serialized room drifted from golden file");
+    assert_eq!(
+        actual.trim(),
+        golden.trim(),
+        "serialized room drifted from golden file"
+    );
 }

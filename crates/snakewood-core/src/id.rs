@@ -89,12 +89,21 @@ mod tests {
 
     #[test]
     fn rejects_uppercase() {
-        assert_eq!(EntityId::new("Snakewood/clearing"), Err(IdError::InvalidChar('S')));
+        assert_eq!(
+            EntityId::new("Snakewood/clearing"),
+            Err(IdError::InvalidChar('S'))
+        );
     }
 
     #[test]
     fn rejects_leading_or_trailing_slash() {
-        assert_eq!(EntityId::new("/snakewood"), Err(IdError::LeadingOrTrailingSlash));
-        assert_eq!(EntityId::new("snakewood/"), Err(IdError::LeadingOrTrailingSlash));
+        assert_eq!(
+            EntityId::new("/snakewood"),
+            Err(IdError::LeadingOrTrailingSlash)
+        );
+        assert_eq!(
+            EntityId::new("snakewood/"),
+            Err(IdError::LeadingOrTrailingSlash)
+        );
     }
 }

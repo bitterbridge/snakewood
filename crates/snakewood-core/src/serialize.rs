@@ -30,8 +30,14 @@ mod tests {
 
     fn clearing() -> Room {
         let mut exits = BTreeMap::new();
-        exits.insert(Direction::North, EntityId::new("snakewood/old-well").unwrap());
-        exits.insert(Direction::Down, EntityId::new("snakewood/root-cellar").unwrap());
+        exits.insert(
+            Direction::North,
+            EntityId::new("snakewood/old-well").unwrap(),
+        );
+        exits.insert(
+            Direction::Down,
+            EntityId::new("snakewood/root-cellar").unwrap(),
+        );
         Room {
             id: EntityId::new("snakewood/clearing").unwrap(),
             name: "Snakewood Clearing".to_string(),

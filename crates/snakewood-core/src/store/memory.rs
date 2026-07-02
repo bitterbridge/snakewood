@@ -49,7 +49,10 @@ mod tests {
 
     fn clearing() -> Room {
         let mut exits = BTreeMap::new();
-        exits.insert(Direction::North, EntityId::new("snakewood/old-well").unwrap());
+        exits.insert(
+            Direction::North,
+            EntityId::new("snakewood/old-well").unwrap(),
+        );
         Room {
             id: EntityId::new("snakewood/clearing").unwrap(),
             name: "Snakewood Clearing".to_string(),
@@ -72,6 +75,9 @@ mod tests {
         let mut store = MemoryStore::new();
         store.commit("first", 1000).unwrap();
         store.commit("second", 2000).unwrap();
-        assert_eq!(store.commit_log(), vec!["first".to_string(), "second".to_string()]);
+        assert_eq!(
+            store.commit_log(),
+            vec!["first".to_string(), "second".to_string()]
+        );
     }
 }
