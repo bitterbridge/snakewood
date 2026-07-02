@@ -10,7 +10,7 @@ pub use direction::Direction;
 pub use id::{EntityId, IdError};
 pub use world::{Room, World};
 pub use serialize::{room_from_ron, room_to_ron};
-pub use store::{CommitId, MemoryStore, StoreError, WorldStore};
+pub use store::{CommitId, GitStore, MemoryStore, StoreError, WorldStore};
 
 #[cfg(test)]
 mod smoke {

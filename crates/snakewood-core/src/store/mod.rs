@@ -1,7 +1,9 @@
 use crate::{Room, World};
 
+pub mod git;
 pub mod memory;
 
+pub use git::GitStore;
 pub use memory::MemoryStore;
 
 #[derive(Debug)]
