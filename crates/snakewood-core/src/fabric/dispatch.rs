@@ -63,7 +63,10 @@ pub fn dispatch(realm: &mut Realm, intent: Intent) -> Dispatch {
 
     match &intent {
         Intent::Look { .. } => {
-            // Look is not guarded in Stage 2; it commits a Looked event + view.
+            // Look is NOT guarded in Stage 2: it never calls gather()/resolve(),
+            // so `Trigger::Look` responders/rules are inert for now. Wiring Look
+            // through Guard (e.g. predicate-gated observation like blindness) is a
+            // Stage 3 decision — do not assume Look handlers fire yet.
             if let Some(room_id) = realm.mob_location(&actor).cloned() {
                 out.events.push(Event::Looked {
                     actor: actor.clone(),
