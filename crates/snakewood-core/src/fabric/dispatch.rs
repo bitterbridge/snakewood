@@ -123,7 +123,7 @@ pub fn dispatch(realm: &mut Realm, intent: Intent) -> Dispatch {
                 Decision::Unresolved => {
                     out.messages.push((
                         actor.clone(),
-                        PresentationNode::Denied("You see no exit in that direction.".to_string()),
+                        PresentationNode::Denied(realm.no_exit_message.clone()),
                     ));
                 }
             }
@@ -224,6 +224,21 @@ mod tests {
         assert!(out.messages.iter().any(|(_, n)| *n
             == PresentationNode::Denied("You see no exit in that direction.".to_string())));
         assert!(out.events.is_empty());
+    }
+
+    #[test]
+    fn no_exit_message_is_data_driven() {
+        let mut realm = realm_with_actor();
+        realm.no_exit_message = "There's nothing that way, friend.".to_string();
+        let out = dispatch(
+            &mut realm,
+            Intent::Move {
+                actor: actor_id(),
+                direction: Direction::South,
+            },
+        );
+        assert!(out.messages.iter().any(|(_, n)| *n
+            == PresentationNode::Denied("There's nothing that way, friend.".to_string())));
     }
 
     #[test]

@@ -5,11 +5,14 @@ use crate::{EntityId, Mob, World};
 
 /// The fabric's operating context: authored rooms (`world`) plus live `mobs`
 /// and global `rules`. Co-presence is derived on demand.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Realm {
     pub world: World,
     pub mobs: BTreeMap<EntityId, Mob>,
     pub rules: Vec<Rule>,
+    /// Message shown when a movement intent resolves to no exit at all.
+    /// Data, not hardcoded, so content can reword/localize it.
+    pub no_exit_message: String,
 }
 
 impl Realm {
@@ -18,6 +21,7 @@ impl Realm {
             world,
             mobs: BTreeMap::new(),
             rules: Vec::new(),
+            no_exit_message: "You see no exit in that direction.".to_string(),
         }
     }
 
@@ -41,6 +45,12 @@ impl Realm {
     /// call — there is no stored subscription list to go stale.
     pub fn mobs_in_room(&self, room: &EntityId) -> Vec<&Mob> {
         self.mobs.values().filter(|m| &m.location == room).collect()
+    }
+}
+
+impl Default for Realm {
+    fn default() -> Realm {
+        Realm::new(World::default())
     }
 }
 
@@ -89,5 +99,13 @@ mod tests {
             realm.mob_location(&a).map(|r| r.as_str()),
             Some("snakewood/clearing")
         );
+    }
+
+    #[test]
+    fn realm_has_default_no_exit_message() {
+        let realm = Realm::new(World::default());
+        assert_eq!(realm.no_exit_message, "You see no exit in that direction.");
+        // Default delegates to new(World::default())
+        assert_eq!(Realm::default().no_exit_message, realm.no_exit_message);
     }
 }
