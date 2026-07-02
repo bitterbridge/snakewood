@@ -72,6 +72,10 @@ impl WorldStore for GitStore {
 
     fn commit(&mut self, message: &str, epoch_seconds: i64) -> Result<CommitId, StoreError> {
         let mut index = self.repo.index().map_err(git_err)?;
+        // NOTE: add_all stages new and modified files but does NOT stage
+        // deletions or renames. Harmless now (there is no delete/rename path),
+        // but when Stage 2/3 adds room removal/rename this must switch to
+        // update_all or explicit removal so deleted entities leave the tree.
         index
             .add_all(["*"].iter(), IndexAddOption::DEFAULT, None)
             .map_err(git_err)?;
