@@ -116,6 +116,17 @@ impl Engine {
     pub fn has_store(&self) -> bool {
         self.store.is_some()
     }
+
+    /// Persist the whole realm and commit it immediately (on-checkpoint; also
+    /// used by authored on-change ops once they exist). No-op without a store.
+    pub fn checkpoint(&mut self, message: &str) -> Result<(), StoreError> {
+        let now = self.clock.now_unix();
+        if let Some(store) = self.store.as_mut() {
+            store.save_realm(&self.realm)?;
+            store.commit(message, now)?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -320,5 +331,47 @@ mod tests {
             .mob(&EntityId::new("snakewood/mob/goblin#1").unwrap())
             .is_some());
         assert!(e.has_store());
+    }
+
+    #[test]
+    fn checkpoint_persists_live_state_across_a_restart() {
+        let dir = tempdir().unwrap();
+        // First engine: seed a world with an actor, move it, checkpoint.
+        {
+            let mut realm = Realm::new(world_two_rooms());
+            let mut flags = std::collections::BTreeSet::new();
+            flags.insert(snakewood_core::Flag::Alive);
+            realm.insert_mob(snakewood_core::Mob {
+                id: EntityId::new("snakewood/pc/nathan").unwrap(),
+                name: "Nathan".to_string(),
+                location: EntityId::new("snakewood/clearing").unwrap(),
+                flags,
+                responders: Vec::new(),
+            });
+            let store = GitStore::init(dir.path()).unwrap();
+            let mut e = Engine::new(realm, Box::new(ManualClock::new(1000)));
+            e.attach_store(Box::new(store));
+            let sid = e.connect(EntityId::new("snakewood/pc/nathan").unwrap());
+            e.submit(sid, Intent::Move {
+                actor: EntityId::new("snakewood/pc/nathan").unwrap(),
+                direction: Direction::North,
+            });
+            e.checkpoint("player moved north").unwrap();
+        }
+        // Second engine: boot from the same dir — the actor is at the moved location.
+        let store = GitStore::init(dir.path()).unwrap();
+        let e2 = Engine::boot(Box::new(store), Box::new(ManualClock::new(2000))).unwrap();
+        assert_eq!(
+            e2.realm().mob_location(&EntityId::new("snakewood/pc/nathan").unwrap()).map(|r| r.as_str()),
+            Some("snakewood/old-well")
+        );
+        // Sessions are runtime-only; a freshly booted engine has none.
+        assert_eq!(e2.session_actor(SessionId(0)), None);
+    }
+
+    #[test]
+    fn checkpoint_without_store_is_ok_noop() {
+        let mut e = engine();
+        assert!(e.checkpoint("nothing to persist").is_ok());
     }
 }
