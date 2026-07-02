@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 snakewood-core = { path = "../snakewood-core" }
+tokio = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -47,3 +47,29 @@ mod tests {
         assert_eq!(clock.now_unix(), 5);
     }
 }
+
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// The production clock: real wall-clock time. This is the ONLY sanctioned place
+/// the daemon reads `SystemTime::now()`; everything else takes time via `Clock`.
+pub struct SystemClock;
+
+impl Clock for SystemClock {
+    fn now_unix(&self) -> i64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod system_clock_tests {
+    use super::*;
+
+    #[test]
+    fn system_clock_is_after_2020() {
+        // 2020-01-01 UTC = 1_577_836_800. A real clock must be well past this.
+        assert!(SystemClock.now_unix() > 1_577_836_800);
+    }
+}

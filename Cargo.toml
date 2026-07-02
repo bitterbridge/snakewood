@@ -13,3 +13,4 @@ git2 = "0.19"
 walkdir = "2"
 proptest = "1"
 tempfile = "3"
+tokio = { version = "1", features = ["rt", "net", "io-util", "macros", "time"] }
