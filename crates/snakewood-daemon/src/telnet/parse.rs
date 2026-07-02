@@ -14,17 +14,25 @@ pub fn parse(line: &str, actor: &EntityId) -> Option<Intent> {
         _ => None,
     };
     if let Some(direction) = direction {
-        return Some(Intent::Move { actor: actor.clone(), direction });
+        return Some(Intent::Move {
+            actor: actor.clone(),
+            direction,
+        });
     }
     match word.as_str() {
-        "look" | "l" => Some(Intent::Look { actor: actor.clone() }),
+        "look" | "l" => Some(Intent::Look {
+            actor: actor.clone(),
+        }),
         _ => None,
     }
 }
 
 /// Whether a line is a request to disconnect (a transport concern, not an Intent).
 pub fn is_quit(line: &str) -> bool {
-    matches!(line.trim().to_ascii_lowercase().as_str(), "quit" | "q" | "exit")
+    matches!(
+        line.trim().to_ascii_lowercase().as_str(),
+        "quit" | "q" | "exit"
+    )
 }
 
 #[cfg(test)]
@@ -37,14 +45,35 @@ mod tests {
 
     #[test]
     fn parses_movement_words_and_abbreviations() {
-        assert_eq!(parse("north", &actor()), Some(Intent::Move { actor: actor(), direction: Direction::North }));
-        assert_eq!(parse("N", &actor()), Some(Intent::Move { actor: actor(), direction: Direction::North }));
-        assert_eq!(parse("  d  ", &actor()), Some(Intent::Move { actor: actor(), direction: Direction::Down }));
+        assert_eq!(
+            parse("north", &actor()),
+            Some(Intent::Move {
+                actor: actor(),
+                direction: Direction::North
+            })
+        );
+        assert_eq!(
+            parse("N", &actor()),
+            Some(Intent::Move {
+                actor: actor(),
+                direction: Direction::North
+            })
+        );
+        assert_eq!(
+            parse("  d  ", &actor()),
+            Some(Intent::Move {
+                actor: actor(),
+                direction: Direction::Down
+            })
+        );
     }
 
     #[test]
     fn parses_look() {
-        assert_eq!(parse("look", &actor()), Some(Intent::Look { actor: actor() }));
+        assert_eq!(
+            parse("look", &actor()),
+            Some(Intent::Look { actor: actor() })
+        );
         assert_eq!(parse("l", &actor()), Some(Intent::Look { actor: actor() }));
     }
 
