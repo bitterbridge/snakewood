@@ -10,15 +10,25 @@ fn pretty_config() -> PrettyConfig {
         .indentor("    ".to_string())
 }
 
+/// Serialize any value to canonical pretty RON.
+pub fn to_ron<T: serde::Serialize>(value: &T) -> String {
+    ron::ser::to_string_pretty(value, pretty_config())
+        .expect("serialization is infallible for our field types")
+}
+
+/// Parse any value from RON text.
+pub fn from_ron<T: serde::de::DeserializeOwned>(s: &str) -> Result<T, ron::error::SpannedError> {
+    ron::from_str(s)
+}
+
 /// Serialize a room to canonical pretty RON.
 pub fn room_to_ron(room: &Room) -> String {
-    ron::ser::to_string_pretty(room, pretty_config())
-        .expect("Room serialization is infallible for our field types")
+    to_ron(room)
 }
 
 /// Parse a room from RON text.
 pub fn room_from_ron(s: &str) -> Result<Room, ron::error::SpannedError> {
-    ron::from_str(s)
+    from_ron(s)
 }
 
 #[cfg(test)]
@@ -72,5 +82,19 @@ mod tests {
             north_pos < down_pos,
             "exits must serialize in Direction declaration order (North before Down):\n{text}"
         );
+    }
+
+    #[test]
+    fn generic_ron_round_trips_a_vec() {
+        let v: Vec<u32> = vec![3, 1, 2];
+        let text = to_ron(&v);
+        let back: Vec<u32> = from_ron(&text).unwrap();
+        assert_eq!(back, v);
+    }
+
+    #[test]
+    fn room_helpers_match_generic() {
+        let room = clearing();
+        assert_eq!(room_to_ron(&room), to_ron(&room));
     }
 }
