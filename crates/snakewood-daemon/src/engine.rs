@@ -1,9 +1,21 @@
 use std::collections::BTreeMap;
 
-use snakewood_core::{dispatch, EntityId, Intent, PresentationNode, Realm, StoreError, WorldStore};
+use snakewood_core::{
+    dispatch, Direction, EntityId, Intent, PresentationNode, Realm, Room, StoreError, WorldStore,
+};
 
 use crate::session::{Session, SessionId};
 use crate::Clock;
+
+/// Why a `dig` failed.
+#[derive(Debug)]
+pub enum DigError {
+    NoSession,
+    NoLocation,
+    InvalidId(String),
+    RoomExists,
+    Store(StoreError),
+}
 
 /// The synchronous core of the daemon: owns the world, the clock, and sessions.
 pub struct Engine {
@@ -149,6 +161,48 @@ impl Engine {
         }
         self.last_snapshot = now;
         Ok(committed)
+    }
+
+    /// OOC world-building: create a new room reached by `direction` from the
+    /// session's current room, linked both ways, and checkpoint it.
+    pub fn dig(
+        &mut self,
+        session: SessionId,
+        direction: Direction,
+        new_id: &str,
+        name: &str,
+        description: &str,
+    ) -> Result<EntityId, DigError> {
+        let actor = self
+            .session_actor(session)
+            .ok_or(DigError::NoSession)?
+            .clone();
+        let current = self
+            .realm()
+            .mob_location(&actor)
+            .ok_or(DigError::NoLocation)?
+            .clone();
+        let new_room_id =
+            EntityId::new(new_id).map_err(|_| DigError::InvalidId(new_id.to_string()))?;
+        if self.realm().world.room(&new_room_id).is_some() {
+            return Err(DigError::RoomExists);
+        }
+        // Create the new room with a back-exit to the current room.
+        let mut exits = BTreeMap::new();
+        exits.insert(direction.opposite(), current.clone());
+        self.realm_mut().world.insert_room(Room {
+            id: new_room_id.clone(),
+            name: name.to_string(),
+            description: description.to_string(),
+            exits,
+        });
+        // Link the current room's exit to the new room.
+        if let Some(room) = self.realm_mut().world.rooms.get_mut(&current) {
+            room.exits.insert(direction, new_room_id.clone());
+        }
+        self.checkpoint(&format!("dig {new_id}"))
+            .map_err(DigError::Store)?;
+        Ok(new_room_id)
     }
 }
 
@@ -467,5 +521,88 @@ mod tests {
         let (mut e, _sid) = engine_with_store_and_actor(dir.path(), 0);
         // No interval configured.
         assert!(!e.maybe_snapshot().unwrap());
+    }
+
+    #[test]
+    fn dig_creates_linked_room_and_persists() {
+        use snakewood_core::GitStore;
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let new_room_str = "snakewood/hollow";
+        {
+            let mut realm = Realm::new(world_two_rooms()); // clearing --north--> old-well
+            let mut flags = std::collections::BTreeSet::new();
+            flags.insert(snakewood_core::Flag::Alive);
+            realm.insert_mob(snakewood_core::Mob {
+                id: EntityId::new("snakewood/pc/nathan").unwrap(),
+                name: "Nathan".to_string(),
+                location: EntityId::new("snakewood/clearing").unwrap(),
+                flags,
+                responders: Vec::new(),
+            });
+            let store = GitStore::init(dir.path()).unwrap();
+            let mut e = Engine::new(realm, Box::new(ManualClock::new(1000)));
+            e.attach_store(Box::new(store));
+            let sid = e.connect(EntityId::new("snakewood/pc/nathan").unwrap());
+            // Dig east from the clearing into a new hollow.
+            let created = e
+                .dig(
+                    sid,
+                    Direction::East,
+                    new_room_str,
+                    "A Hollow",
+                    "A mossy hollow.",
+                )
+                .unwrap();
+            assert_eq!(created.as_str(), new_room_str);
+            // The new room exists with a back-exit west to the clearing.
+            let hollow = e
+                .realm()
+                .world
+                .room(&EntityId::new(new_room_str).unwrap())
+                .unwrap();
+            assert_eq!(
+                hollow.exits.get(&Direction::West).map(|r| r.as_str()),
+                Some("snakewood/clearing")
+            );
+            // The clearing now has an east exit to the hollow.
+            let clearing = e
+                .realm()
+                .world
+                .room(&EntityId::new("snakewood/clearing").unwrap())
+                .unwrap();
+            assert_eq!(
+                clearing.exits.get(&Direction::East).map(|r| r.as_str()),
+                Some(new_room_str)
+            );
+        }
+        // Persisted: a fresh boot from the same dir has the dug room.
+        let store = GitStore::init(dir.path()).unwrap();
+        let e2 = Engine::boot(Box::new(store), Box::new(ManualClock::new(2000))).unwrap();
+        assert!(e2
+            .realm()
+            .world
+            .room(&EntityId::new(new_room_str).unwrap())
+            .is_some());
+    }
+
+    #[test]
+    fn dig_rejects_existing_room() {
+        let mut realm = Realm::new(world_two_rooms());
+        let mut flags = std::collections::BTreeSet::new();
+        flags.insert(snakewood_core::Flag::Alive);
+        realm.insert_mob(snakewood_core::Mob {
+            id: EntityId::new("snakewood/pc/nathan").unwrap(),
+            name: "Nathan".to_string(),
+            location: EntityId::new("snakewood/clearing").unwrap(),
+            flags,
+            responders: Vec::new(),
+        });
+        let mut e = Engine::new(realm, Box::new(ManualClock::new(0)));
+        let sid = e.connect(EntityId::new("snakewood/pc/nathan").unwrap());
+        // old-well already exists -> RoomExists.
+        let result = e.dig(sid, Direction::East, "snakewood/old-well", "dup", "dup");
+        assert!(matches!(result, Err(DigError::RoomExists)));
     }
 }
