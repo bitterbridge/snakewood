@@ -1,4 +1,4 @@
-use crate::{Room, World};
+use crate::{EntityId, Mob, Realm, Room, Rule, World};
 
 pub mod git;
 pub mod memory;
@@ -30,4 +30,41 @@ pub trait WorldStore {
 
     /// Commit messages recorded so far, oldest first.
     fn commit_log(&self) -> Vec<String>;
+
+    /// Persist a single live mob instance (to `state/` in git-backed impls).
+    fn save_mob(&mut self, mob: &Mob) -> Result<(), StoreError>;
+
+    /// Remove a persisted mob by id (no-op if it isn't stored).
+    fn remove_mob(&mut self, id: &EntityId) -> Result<(), StoreError>;
+
+    /// Load all live mob instances.
+    fn load_mobs(&self) -> Result<Vec<Mob>, StoreError>;
+
+    /// Persist the global rule list (authored, `world/` in git-backed impls).
+    fn save_rules(&mut self, rules: &[Rule]) -> Result<(), StoreError>;
+
+    /// Load the global rule list (empty if none persisted).
+    fn load_rules(&self) -> Result<Vec<Rule>, StoreError>;
+
+    /// Load the entire live realm: authored rooms + live mobs + global rules.
+    fn load_realm(&self) -> Result<Realm, StoreError> {
+        let mut realm = Realm::new(self.load_all()?);
+        for mob in self.load_mobs()? {
+            realm.insert_mob(mob);
+        }
+        realm.rules = self.load_rules()?;
+        Ok(realm)
+    }
+
+    /// Persist an entire realm: every room, every mob, and the rule list.
+    fn save_realm(&mut self, realm: &Realm) -> Result<(), StoreError> {
+        for room in realm.world.rooms.values() {
+            self.save_room(room)?;
+        }
+        for mob in realm.mobs.values() {
+            self.save_mob(mob)?;
+        }
+        self.save_rules(&realm.rules)?;
+        Ok(())
+    }
 }

@@ -1,13 +1,15 @@
 use std::collections::BTreeMap;
 
 use crate::store::{CommitId, StoreError, WorldStore};
-use crate::{EntityId, Room, World};
+use crate::{EntityId, Mob, Room, Rule, World};
 
 /// An in-memory store for fast tests. "Commits" are recorded as snapshots so
 /// behavior mirrors the git store closely enough for logic tests.
 #[derive(Default)]
 pub struct MemoryStore {
     rooms: BTreeMap<EntityId, Room>,
+    mobs: BTreeMap<EntityId, Mob>,
+    rules: Vec<Rule>,
     commits: Vec<String>,
     next_commit: u64,
 }
@@ -39,6 +41,29 @@ impl WorldStore for MemoryStore {
 
     fn commit_log(&self) -> Vec<String> {
         self.commits.clone()
+    }
+
+    fn save_mob(&mut self, mob: &Mob) -> Result<(), StoreError> {
+        self.mobs.insert(mob.id.clone(), mob.clone());
+        Ok(())
+    }
+
+    fn remove_mob(&mut self, id: &EntityId) -> Result<(), StoreError> {
+        self.mobs.remove(id);
+        Ok(())
+    }
+
+    fn load_mobs(&self) -> Result<Vec<Mob>, StoreError> {
+        Ok(self.mobs.values().cloned().collect())
+    }
+
+    fn save_rules(&mut self, rules: &[Rule]) -> Result<(), StoreError> {
+        self.rules = rules.to_vec();
+        Ok(())
+    }
+
+    fn load_rules(&self) -> Result<Vec<Rule>, StoreError> {
+        Ok(self.rules.clone())
     }
 }
 
@@ -79,5 +104,54 @@ mod tests {
             store.commit_log(),
             vec!["first".to_string(), "second".to_string()]
         );
+    }
+
+    #[test]
+    fn saves_loads_and_removes_mobs() {
+        use crate::{Flag, Mob};
+        use std::collections::BTreeSet;
+        let mut store = MemoryStore::new();
+        let mut flags = BTreeSet::new();
+        flags.insert(Flag::Alive);
+        let mob = Mob {
+            id: EntityId::new("snakewood/mob/goblin#1").unwrap(),
+            name: "a goblin".to_string(),
+            location: EntityId::new("snakewood/clearing").unwrap(),
+            flags,
+            responders: Vec::new(),
+        };
+        store.save_mob(&mob).unwrap();
+        assert_eq!(store.load_mobs().unwrap(), vec![mob.clone()]);
+        store.remove_mob(&mob.id).unwrap();
+        assert!(store.load_mobs().unwrap().is_empty());
+        // removing an absent mob is a no-op
+        store.remove_mob(&mob.id).unwrap();
+    }
+
+    #[test]
+    fn load_realm_composes_rooms_mobs_rules() {
+        use crate::Mob;
+        use std::collections::BTreeSet;
+        let mut store = MemoryStore::new();
+        store.save_room(&clearing()).unwrap();
+        store
+            .save_mob(&Mob {
+                id: EntityId::new("snakewood/mob/goblin#1").unwrap(),
+                name: "a goblin".to_string(),
+                location: EntityId::new("snakewood/clearing").unwrap(),
+                flags: BTreeSet::new(),
+                responders: Vec::new(),
+            })
+            .unwrap();
+        let realm = store.load_realm().unwrap();
+        assert!(realm
+            .world
+            .room(&EntityId::new("snakewood/clearing").unwrap())
+            .is_some());
+        assert!(realm
+            .mob(&EntityId::new("snakewood/mob/goblin#1").unwrap())
+            .is_some());
+        // no_exit_message defaulted via Realm::new
+        assert_eq!(realm.no_exit_message, "You see no exit in that direction.");
     }
 }

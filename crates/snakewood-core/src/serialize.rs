@@ -11,7 +11,7 @@ fn pretty_config() -> PrettyConfig {
 }
 
 /// Serialize any value to canonical pretty RON.
-pub fn to_ron<T: serde::Serialize>(value: &T) -> String {
+pub fn to_ron<T: serde::Serialize + ?Sized>(value: &T) -> String {
     ron::ser::to_string_pretty(value, pretty_config())
         .expect("serialization is infallible for our field types")
 }

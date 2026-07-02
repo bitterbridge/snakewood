@@ -5,7 +5,7 @@ use git2::{IndexAddOption, Repository, Signature, Time};
 use walkdir::WalkDir;
 
 use crate::store::{CommitId, StoreError, WorldStore};
-use crate::{room_from_ron, room_to_ron, Room, World};
+use crate::{from_ron, room_from_ron, room_to_ron, to_ron, EntityId, Mob, Room, Rule, World};
 
 fn io_err<E: std::fmt::Display>(e: E) -> StoreError {
     StoreError::Io(e.to_string())
@@ -40,6 +40,26 @@ impl GitStore {
             .join("rooms")
             .join(format!("{}.ron", room.id.name()))
     }
+
+    fn mob_path(&self, mob: &Mob) -> PathBuf {
+        self.root
+            .join("state")
+            .join(mob.id.zone())
+            .join("mobs")
+            .join(format!("{}.ron", mob.id.name()))
+    }
+
+    fn mob_path_for_id(&self, id: &EntityId) -> PathBuf {
+        self.root
+            .join("state")
+            .join(id.zone())
+            .join("mobs")
+            .join(format!("{}.ron", id.name()))
+    }
+
+    fn rules_path(&self) -> PathBuf {
+        self.root.join("world").join("rules.ron")
+    }
 }
 
 impl WorldStore for GitStore {
@@ -61,6 +81,17 @@ impl WorldStore for GitStore {
         for entry in WalkDir::new(&world_dir).into_iter().filter_map(Result::ok) {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) != Some("ron") {
+                continue;
+            }
+            // Rooms live under world/<zone>/rooms/<name>.ron; other authored
+            // data (e.g. world/rules.ron) also sits under world/ but is not a
+            // room, so only descend into "rooms" directories here.
+            let is_room_file = path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                == Some("rooms");
+            if !is_room_file {
                 continue;
             }
             let text = fs::read_to_string(path).map_err(io_err)?;
@@ -112,6 +143,62 @@ impl WorldStore for GitStore {
         }
         messages.reverse(); // oldest first
         messages
+    }
+
+    fn save_mob(&mut self, mob: &Mob) -> Result<(), StoreError> {
+        let path = self.mob_path(mob);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(io_err)?;
+        }
+        fs::write(&path, to_ron(mob)).map_err(io_err)?;
+        Ok(())
+    }
+
+    fn remove_mob(&mut self, id: &EntityId) -> Result<(), StoreError> {
+        let path = self.mob_path_for_id(id);
+        match fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(io_err(e)),
+        }
+    }
+
+    fn load_mobs(&self) -> Result<Vec<Mob>, StoreError> {
+        let mut mobs = Vec::new();
+        let state_dir = self.root.join("state");
+        if !state_dir.exists() {
+            return Ok(mobs);
+        }
+        for entry in WalkDir::new(&state_dir).into_iter().filter_map(Result::ok) {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("ron") {
+                continue;
+            }
+            let text = fs::read_to_string(path).map_err(io_err)?;
+            let mob: Mob = from_ron(&text).map_err(|e| StoreError::Parse(e.to_string()))?;
+            mobs.push(mob);
+        }
+        // Deterministic order by id.
+        mobs.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str()));
+        Ok(mobs)
+    }
+
+    fn save_rules(&mut self, rules: &[Rule]) -> Result<(), StoreError> {
+        let path = self.rules_path();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(io_err)?;
+        }
+        fs::write(&path, to_ron(rules)).map_err(io_err)?;
+        Ok(())
+    }
+
+    fn load_rules(&self) -> Result<Vec<Rule>, StoreError> {
+        let path = self.rules_path();
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let text = fs::read_to_string(&path).map_err(io_err)?;
+        from_ron(&text).map_err(|e| StoreError::Parse(e.to_string()))
     }
 }
 
@@ -186,5 +273,45 @@ mod tests {
         store.save_room(&clearing()).unwrap();
         let expected = dir.path().join("world/snakewood/rooms/clearing.ron");
         assert!(expected.exists(), "expected room file at {expected:?}");
+    }
+
+    #[test]
+    fn realm_round_trips_through_git() {
+        use crate::fabric::{Outcome, Rule, Trigger};
+        use crate::{Flag, Mob};
+        use std::collections::BTreeSet;
+
+        let dir = tempdir().unwrap();
+        let mut store = GitStore::init(dir.path()).unwrap();
+
+        let mut realm = crate::Realm::new({
+            let mut w = World::default();
+            w.insert_room(clearing());
+            w
+        });
+        let mut flags = BTreeSet::new();
+        flags.insert(Flag::Alive);
+        realm.insert_mob(Mob {
+            id: EntityId::new("snakewood/mob/goblin#1").unwrap(),
+            name: "a goblin".to_string(),
+            location: EntityId::new("snakewood/clearing").unwrap(),
+            flags,
+            responders: Vec::new(),
+        });
+        realm.rules.push(Rule {
+            on: Trigger::AnyMove,
+            require: Vec::new(),
+            effects: Vec::new(),
+            outcome: Outcome::Allow,
+            priority: 0,
+        });
+
+        store.save_realm(&realm).unwrap();
+        store.commit("save realm", 1_700_000_000).unwrap();
+
+        let reloaded = GitStore::init(dir.path()).unwrap().load_realm().unwrap();
+        assert_eq!(reloaded.world, realm.world);
+        assert_eq!(reloaded.mobs, realm.mobs);
+        assert_eq!(reloaded.rules, realm.rules);
     }
 }
