@@ -11,7 +11,7 @@ pub mod store;
 pub mod world;
 
 pub use direction::Direction;
-pub use fabric::{Band, Effect, Event, Intent, Outcome, Responder, Rule};
+pub use fabric::{dispatch, Band, Dispatch, Effect, Event, Intent, Outcome, Responder, Rule};
 pub use id::{EntityId, IdError};
 pub use mob::{Flag, Mob};
 pub use presentation::PresentationNode;
