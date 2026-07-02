@@ -124,7 +124,6 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use super::*;
-    use crate::fabric::{Party, Predicate, Responder, Trigger};
     use crate::{Direction, Flag, Mob, Room, World};
 
     fn world_two_rooms() -> World {
