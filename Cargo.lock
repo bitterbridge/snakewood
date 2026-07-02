@@ -586,6 +586,7 @@ name = "snakewood-daemon"
 version = "0.1.0"
 dependencies = [
  "snakewood-core",
+ "tempfile",
 ]
 
 [[package]]

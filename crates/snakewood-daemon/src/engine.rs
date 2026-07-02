@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use snakewood_core::{dispatch, EntityId, Intent, PresentationNode, Realm};
+use snakewood_core::{dispatch, EntityId, Intent, PresentationNode, Realm, StoreError, WorldStore};
 
 use crate::session::{Session, SessionId};
 use crate::Clock;
@@ -12,6 +12,9 @@ pub struct Engine {
     sessions: BTreeMap<SessionId, Session>,
     next_session: u64,
     tick: u64,
+    store: Option<Box<dyn WorldStore>>,
+    snapshot_interval: Option<i64>,
+    last_snapshot: i64,
 }
 
 impl Engine {
@@ -22,6 +25,9 @@ impl Engine {
             sessions: BTreeMap::new(),
             next_session: 0,
             tick: 0,
+            store: None,
+            snapshot_interval: None,
+            last_snapshot: 0,
         }
     }
 
@@ -92,14 +98,33 @@ impl Engine {
     pub fn now_unix(&self) -> i64 {
         self.clock.now_unix()
     }
+
+    /// Attach a store for persistence and reset the snapshot clock to now.
+    pub fn attach_store(&mut self, store: Box<dyn WorldStore>) {
+        self.last_snapshot = self.clock.now_unix();
+        self.store = Some(store);
+    }
+
+    /// Boot an engine by loading the entire realm from `store`.
+    pub fn boot(store: Box<dyn WorldStore>, clock: Box<dyn Clock>) -> Result<Engine, StoreError> {
+        let realm = store.load_realm()?;
+        let mut engine = Engine::new(realm, clock);
+        engine.attach_store(store);
+        Ok(engine)
+    }
+
+    pub fn has_store(&self) -> bool {
+        self.store.is_some()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ManualClock;
-    use snakewood_core::{Direction, Flag, Intent, Mob, PresentationNode, Room, World};
+    use snakewood_core::{Direction, Flag, GitStore, Intent, Mob, PresentationNode, Room, World};
     use std::collections::BTreeSet;
+    use tempfile::tempdir;
 
     fn engine() -> Engine {
         Engine::new(Realm::new(World::default()), Box::new(ManualClock::new(0)))
@@ -251,5 +276,49 @@ mod tests {
         clock.advance(100); // now 600
         let e = Engine::new(Realm::new(World::default()), Box::new(clock));
         assert_eq!(e.now_unix(), 600);
+    }
+
+    #[test]
+    fn attach_store_sets_flag_and_snapshot_time() {
+        let clock = ManualClock::new(4242);
+        let dir = tempdir().unwrap();
+        let store = GitStore::init(dir.path()).unwrap();
+        let mut e = Engine::new(Realm::new(World::default()), Box::new(clock));
+        assert!(!e.has_store());
+        e.attach_store(Box::new(store));
+        assert!(e.has_store());
+    }
+
+    #[test]
+    fn boot_loads_realm_from_store() {
+        // Pre-populate a store on disk, commit, then boot an Engine from it.
+        let dir = tempdir().unwrap();
+        {
+            let mut store = GitStore::init(dir.path()).unwrap();
+            let mut realm = Realm::new(world_two_rooms());
+            let mut flags = BTreeSet::new();
+            flags.insert(Flag::Alive);
+            realm.insert_mob(Mob {
+                id: EntityId::new("snakewood/mob/goblin#1").unwrap(),
+                name: "a goblin".to_string(),
+                location: EntityId::new("snakewood/clearing").unwrap(),
+                flags,
+                responders: Vec::new(),
+            });
+            store.save_realm(&realm).unwrap();
+            store.commit("seed", 1000).unwrap();
+        }
+        let store = GitStore::init(dir.path()).unwrap();
+        let e = Engine::boot(Box::new(store), Box::new(ManualClock::new(2000))).unwrap();
+        assert!(e
+            .realm()
+            .world
+            .room(&EntityId::new("snakewood/clearing").unwrap())
+            .is_some());
+        assert!(e
+            .realm()
+            .mob(&EntityId::new("snakewood/mob/goblin#1").unwrap())
+            .is_some());
+        assert!(e.has_store());
     }
 }
