@@ -1,6 +1,7 @@
 //! snakewood-core: the pure, deterministic world model and storage layer.
 
 pub mod direction;
+pub mod fabric;
 pub mod id;
 pub mod mob;
 pub mod realm;
@@ -9,6 +10,7 @@ pub mod store;
 pub mod world;
 
 pub use direction::Direction;
+pub use fabric::{Event, Intent};
 pub use id::{EntityId, IdError};
 pub use mob::{Flag, Mob};
 pub use realm::Realm;
