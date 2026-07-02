@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use snakewood_core::{
-    Direction, EntityId, Flag, GitStore, Intent, Mob, Realm, Room, World, WorldStore,
+    Direction, EntityId, Flag, GitStore, Intent, Mob, Realm, Room, World,
 };
 use snakewood_daemon::{Engine, ManualClock, SessionId};
 
