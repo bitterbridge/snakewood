@@ -1,0 +1,2 @@
+# snakewood
+An experimental MUD
