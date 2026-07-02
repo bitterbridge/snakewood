@@ -4,6 +4,7 @@
 pub mod clock;
 pub mod engine;
 pub mod session;
+pub mod telnet;
 
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use engine::Engine;
