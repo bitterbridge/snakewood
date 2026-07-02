@@ -1,0 +1,8 @@
+Room(
+    id: "snakewood/clearing",
+    name: "Snakewood Clearing",
+    description: "Gnarled snakewood trees ring a clearing.",
+    exits: {
+        North: "snakewood/old-well",
+    },
+)
