@@ -102,7 +102,10 @@ mod tests {
 
     fn world_two_rooms() -> World {
         let mut exits = BTreeMap::new();
-        exits.insert(Direction::North, EntityId::new("snakewood/old-well").unwrap());
+        exits.insert(
+            Direction::North,
+            EntityId::new("snakewood/old-well").unwrap(),
+        );
         let mut world = World::default();
         world.insert_room(Room {
             id: EntityId::new("snakewood/clearing").unwrap(),
@@ -161,9 +164,18 @@ mod tests {
     #[test]
     fn submit_move_routes_arrival_view_to_session_and_relocates() {
         let (mut e, sid, actor) = engine_with_actor();
-        e.submit(sid, Intent::Move { actor: actor.clone(), direction: Direction::North });
+        e.submit(
+            sid,
+            Intent::Move {
+                actor: actor.clone(),
+                direction: Direction::North,
+            },
+        );
         // world state changed
-        assert_eq!(e.realm().mob_location(&actor).map(|r| r.as_str()), Some("snakewood/old-well"));
+        assert_eq!(
+            e.realm().mob_location(&actor).map(|r| r.as_str()),
+            Some("snakewood/old-well")
+        );
         // arrival view delivered to the session
         let view = e.poll(sid);
         assert!(view.contains(&PresentationNode::RoomName("The Old Well".to_string())));
@@ -174,9 +186,17 @@ mod tests {
     #[test]
     fn submit_move_no_exit_routes_fallback_message() {
         let (mut e, sid, actor) = engine_with_actor();
-        e.submit(sid, Intent::Move { actor, direction: Direction::South });
+        e.submit(
+            sid,
+            Intent::Move {
+                actor,
+                direction: Direction::South,
+            },
+        );
         let view = e.poll(sid);
-        assert!(view.contains(&PresentationNode::Denied("You see no exit in that direction.".to_string())));
+        assert!(view.contains(&PresentationNode::Denied(
+            "You see no exit in that direction.".to_string()
+        )));
     }
 
     #[test]

@@ -13,6 +13,9 @@ pub struct Session {
 
 impl Session {
     pub fn new(actor: EntityId) -> Session {
-        Session { actor, outbox: Vec::new() }
+        Session {
+            actor,
+            outbox: Vec::new(),
+        }
     }
 }

@@ -13,7 +13,9 @@ pub struct ManualClock {
 
 impl ManualClock {
     pub fn new(start: i64) -> ManualClock {
-        ManualClock { now: AtomicI64::new(start) }
+        ManualClock {
+            now: AtomicI64::new(start),
+        }
     }
 
     pub fn set(&self, t: i64) {

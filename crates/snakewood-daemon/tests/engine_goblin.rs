@@ -52,8 +52,14 @@ fn goblin() -> Mob {
         flags,
         responders: vec![Responder {
             on: Trigger::Move(Direction::North),
-            require: vec![Predicate::Alive(Party::SelfMob), Predicate::Conscious(Party::SelfMob)],
-            effects: vec![Effect::Narrate(Party::Actor, "The goblin blocks your way north.".to_string())],
+            require: vec![
+                Predicate::Alive(Party::SelfMob),
+                Predicate::Conscious(Party::SelfMob),
+            ],
+            effects: vec![Effect::Narrate(
+                Party::Actor,
+                "The goblin blocks your way north.".to_string(),
+            )],
             outcome: Outcome::Block,
             priority: 0,
         }],
@@ -73,10 +79,23 @@ fn engine_delivers_block_then_passage_after_incapacitation() {
     let sid = e.connect(id("snakewood/pc/nathan"));
 
     // Conscious goblin blocks: the session receives the block line, no relocation.
-    e.submit(sid, Intent::Move { actor: id("snakewood/pc/nathan"), direction: Direction::North });
-    assert_eq!(e.realm().mob_location(&id("snakewood/pc/nathan")).map(|r| r.as_str()), Some("snakewood/clearing"));
+    e.submit(
+        sid,
+        Intent::Move {
+            actor: id("snakewood/pc/nathan"),
+            direction: Direction::North,
+        },
+    );
+    assert_eq!(
+        e.realm()
+            .mob_location(&id("snakewood/pc/nathan"))
+            .map(|r| r.as_str()),
+        Some("snakewood/clearing")
+    );
     let view = e.poll(sid);
-    assert!(view.contains(&PresentationNode::Line("The goblin blocks your way north.".to_string())));
+    assert!(view.contains(&PresentationNode::Line(
+        "The goblin blocks your way north.".to_string()
+    )));
 
     // Knock the goblin unconscious — pure state change on the realm, no wiring edits.
     e.realm_mut()
@@ -86,9 +105,22 @@ fn engine_delivers_block_then_passage_after_incapacitation() {
         .remove(&Flag::Conscious);
 
     // Same intent now passes; arrival view delivered.
-    e.submit(sid, Intent::Move { actor: id("snakewood/pc/nathan"), direction: Direction::North });
-    assert_eq!(e.realm().mob_location(&id("snakewood/pc/nathan")).map(|r| r.as_str()), Some("snakewood/old-well"));
+    e.submit(
+        sid,
+        Intent::Move {
+            actor: id("snakewood/pc/nathan"),
+            direction: Direction::North,
+        },
+    );
+    assert_eq!(
+        e.realm()
+            .mob_location(&id("snakewood/pc/nathan"))
+            .map(|r| r.as_str()),
+        Some("snakewood/old-well")
+    );
     let view = e.poll(sid);
     assert!(view.contains(&PresentationNode::RoomName("The Old Well".to_string())));
-    assert!(!view.contains(&PresentationNode::Line("The goblin blocks your way north.".to_string())));
+    assert!(!view.contains(&PresentationNode::Line(
+        "The goblin blocks your way north.".to_string()
+    )));
 }
