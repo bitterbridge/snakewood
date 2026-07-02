@@ -56,12 +56,15 @@ mod tests {
 
     #[test]
     fn exit_keys_are_sorted_by_direction_order() {
-        // Down < North in declaration order, so Down must appear before North
-        // regardless of insertion order.
+        // North is declared before Down in the Direction enum, so North must
+        // appear before Down regardless of insertion order.
         let room = clearing();
         let text = room_to_ron(&room);
-        let down_pos = text.find("Down").expect("Down present");
         let north_pos = text.find("North").expect("North present");
-        assert!(down_pos < north_pos, "exits must serialize in Direction order:\n{text}");
+        let down_pos = text.find("Down").expect("Down present");
+        assert!(
+            north_pos < down_pos,
+            "exits must serialize in Direction declaration order (North before Down):\n{text}"
+        );
     }
 }
