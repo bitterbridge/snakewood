@@ -110,4 +110,88 @@ mod tests {
             PresentationKind::Prompt
         );
     }
+
+    use crate::{from_ron, to_ron};
+    use proptest::prelude::*;
+
+    #[test]
+    fn operator_ron_round_trips_and_is_readable() {
+        let ops = vec![
+            Operator::RateLimit {
+                on: IntentClass::Move,
+                per_ticks: 3,
+                scope: Scope::PerActor,
+                deny: Some("Slow down.".to_string()),
+            },
+            Operator::Coalesce {
+                on: vec![PresentationKind::RoomName, PresentationKind::Exits],
+                within_ticks: 1,
+                scope: Scope::PerActor,
+            },
+        ];
+        let text = to_ron(&ops);
+        // Golden-ish: output is human-readable and names the operators.
+        assert!(text.contains("RateLimit"), "RON:\n{text}");
+        assert!(text.contains("per_ticks: 3"), "RON:\n{text}");
+        assert!(text.contains("Coalesce"), "RON:\n{text}");
+        // Round-trips losslessly.
+        let back: Vec<Operator> = from_ron(&text).unwrap();
+        assert_eq!(back, ops);
+    }
+
+    fn arb_intent_class() -> impl Strategy<Value = IntentClass> {
+        prop_oneof![Just(IntentClass::Move), Just(IntentClass::Look)]
+    }
+
+    fn arb_scope() -> impl Strategy<Value = Scope> {
+        prop_oneof![Just(Scope::Global), Just(Scope::PerActor)]
+    }
+
+    fn arb_kind() -> impl Strategy<Value = PresentationKind> {
+        prop_oneof![
+            Just(PresentationKind::RoomName),
+            Just(PresentationKind::RoomDescription),
+            Just(PresentationKind::Exits),
+            Just(PresentationKind::Occupants),
+            Just(PresentationKind::Line),
+            Just(PresentationKind::Denied),
+            Just(PresentationKind::Prompt),
+        ]
+    }
+
+    fn arb_operator() -> impl Strategy<Value = Operator> {
+        prop_oneof![
+            (
+                arb_intent_class(),
+                1u64..20,
+                arb_scope(),
+                any::<Option<String>>()
+            )
+                .prop_map(|(on, per_ticks, scope, deny)| Operator::RateLimit {
+                    on,
+                    per_ticks,
+                    scope,
+                    deny
+                }),
+            (
+                prop::collection::vec(arb_kind(), 0..7),
+                1u64..5,
+                arb_scope()
+            )
+                .prop_map(|(on, within_ticks, scope)| Operator::Coalesce {
+                    on,
+                    within_ticks,
+                    scope
+                }),
+        ]
+    }
+
+    proptest! {
+        #[test]
+        fn any_operator_list_round_trips(ops in prop::collection::vec(arb_operator(), 0..8)) {
+            let text = to_ron(&ops);
+            let back: Vec<Operator> = from_ron(&text).unwrap();
+            prop_assert_eq!(back, ops);
+        }
+    }
 }
