@@ -4,7 +4,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use snakewood_core::{Direction, EntityId, Realm, Room, World};
-use snakewood_daemon::telnet::serve;
+use snakewood_daemon::telnet::{run_tick_loop, serve};
 use snakewood_daemon::{Engine, ManualClock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -58,12 +58,13 @@ fn connect_look_and_walk() {
         let engine = Rc::new(RefCell::new(two_room_engine()));
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        tokio::task::spawn_local(serve(listener, engine, id("snakewood/clearing")));
+        tokio::task::spawn_local(serve(listener, engine.clone(), id("snakewood/clearing")));
+        tokio::task::spawn_local(run_tick_loop(engine, Duration::from_millis(20)));
 
         let mut client = TcpStream::connect(addr).await.unwrap();
 
         // Greeting shows the start room.
-        let greeting = read_for(&mut client, 300).await;
+        let greeting = read_for(&mut client, 500).await;
         assert!(
             greeting.contains("Snakewood Clearing"),
             "greeting was: {greeting:?}"
@@ -71,7 +72,7 @@ fn connect_look_and_walk() {
 
         // Walk north -> arrive at the Old Well.
         client.write_all(b"n\r\n").await.unwrap();
-        let after_move = read_for(&mut client, 300).await;
+        let after_move = read_for(&mut client, 500).await;
         assert!(
             after_move.contains("The Old Well"),
             "after_move was: {after_move:?}"
@@ -79,7 +80,7 @@ fn connect_look_and_walk() {
 
         // Unknown command -> What?
         client.write_all(b"fluffernuts\r\n").await.unwrap();
-        let after_unknown = read_for(&mut client, 300).await;
+        let after_unknown = read_for(&mut client, 500).await;
         assert!(
             after_unknown.contains("What?"),
             "after_unknown was: {after_unknown:?}"
