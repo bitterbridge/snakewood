@@ -4,6 +4,7 @@
 pub mod api;
 pub mod clock;
 pub mod engine;
+pub mod mcp;
 pub mod session;
 pub mod telnet;
 
