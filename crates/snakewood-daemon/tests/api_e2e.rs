@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use snakewood_core::{Direction, EntityId, PresentationNode, Realm, Room, World};
 use snakewood_daemon::api::{serve_api, ApiRequest, ApiResponse};
+use snakewood_daemon::telnet::run_tick_loop;
 use snakewood_daemon::{Engine, ManualClock};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
@@ -61,7 +62,12 @@ fn drive_world_over_json_api() {
         let engine = Rc::new(RefCell::new(two_room_engine()));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        tokio::task::spawn_local(serve_api(listener, engine, id("snakewood/clearing")));
+        tokio::task::spawn_local(serve_api(
+            listener,
+            engine.clone(),
+            id("snakewood/clearing"),
+        ));
+        tokio::task::spawn_local(run_tick_loop(engine, Duration::from_millis(20)));
 
         // Single connection, split into reader + writer halves that share the socket.
         let stream = TcpStream::connect(addr).await.unwrap();

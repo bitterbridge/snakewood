@@ -1,11 +1,13 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
+use std::time::Duration;
 
 use serde_json::{json, Value};
 use snakewood_core::{Direction, EntityId, Realm, Room, World};
 use snakewood_daemon::api::serve_api;
 use snakewood_daemon::mcp::{dispatch_rpc, JsonRpcRequest, TcpDaemonClient};
+use snakewood_daemon::telnet::run_tick_loop;
 use snakewood_daemon::{Engine, ManualClock};
 
 fn id(s: &str) -> EntityId {
@@ -57,6 +59,7 @@ fn mcp_bridge_drives_the_daemon() {
             )));
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             tx.send(listener.local_addr().unwrap()).unwrap();
+            tokio::task::spawn_local(run_tick_loop(engine.clone(), Duration::from_millis(20)));
             serve_api(listener, engine, id("snakewood/clearing")).await;
         });
     });

@@ -79,13 +79,14 @@ fn engine_delivers_block_then_passage_after_incapacitation() {
     let sid = e.connect(id("snakewood/pc/nathan"));
 
     // Conscious goblin blocks: the session receives the block line, no relocation.
-    e.submit(
+    e.enqueue(
         sid,
         Intent::Move {
             actor: id("snakewood/pc/nathan"),
             direction: Direction::North,
         },
     );
+    e.tick();
     assert_eq!(
         e.realm()
             .mob_location(&id("snakewood/pc/nathan"))
@@ -105,13 +106,14 @@ fn engine_delivers_block_then_passage_after_incapacitation() {
         .remove(&Flag::Conscious);
 
     // Same intent now passes; arrival view delivered.
-    e.submit(
+    e.enqueue(
         sid,
         Intent::Move {
             actor: id("snakewood/pc/nathan"),
             direction: Direction::North,
         },
     );
+    e.tick();
     assert_eq!(
         e.realm()
             .mob_location(&id("snakewood/pc/nathan"))

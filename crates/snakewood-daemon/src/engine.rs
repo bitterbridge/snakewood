@@ -88,28 +88,8 @@ impl Engine {
         &mut self.realm
     }
 
-    /// Dispatch `intent` and fan the resulting presentation out to sessions.
-    ///
-    /// No-op unless `id` is a live session AND the intent acts as that session's
-    /// own actor — a session may only drive the actor it is bound to. This is the
-    /// authorization seam the transports (telnet, MCP) rely on.
-    pub fn submit(&mut self, id: SessionId, intent: Intent) {
-        let authorized = matches!(self.sessions.get(&id), Some(s) if &s.actor == intent.actor());
-        if !authorized {
-            return;
-        }
-        let result = dispatch(&mut self.realm, intent);
-        for (recipient, node) in result.messages {
-            for session in self.sessions.values_mut() {
-                if session.actor == recipient {
-                    session.outbox.push(node.clone());
-                }
-            }
-        }
-    }
-
-    /// Authorize and buffer an intent for the next tick's drain. Like `submit`,
-    /// a session may only enqueue intents for the actor it is bound to.
+    /// Authorize and buffer an intent for the next tick's drain. A session may
+    /// only enqueue intents for the actor it is bound to.
     pub fn enqueue(&mut self, id: SessionId, intent: Intent) {
         let authorized = matches!(self.sessions.get(&id), Some(s) if &s.actor == intent.actor());
         if !authorized {
@@ -530,21 +510,20 @@ mod tests {
     }
 
     #[test]
-    fn submit_move_routes_arrival_view_to_session_and_relocates() {
+    fn drain_move_routes_arrival_view_to_session_and_relocates() {
         let (mut e, sid, actor) = engine_with_actor();
-        e.submit(
+        e.enqueue(
             sid,
             Intent::Move {
                 actor: actor.clone(),
                 direction: Direction::North,
             },
         );
-        // world state changed
+        e.tick();
         assert_eq!(
             e.realm().mob_location(&actor).map(|r| r.as_str()),
             Some("snakewood/old-well")
         );
-        // arrival view delivered to the session
         let view = e.poll(sid);
         assert!(view.contains(&PresentationNode::RoomName("The Old Well".to_string())));
         // draining leaves the outbox empty
@@ -552,15 +531,16 @@ mod tests {
     }
 
     #[test]
-    fn submit_move_no_exit_routes_fallback_message() {
+    fn drain_move_no_exit_routes_fallback_message() {
         let (mut e, sid, actor) = engine_with_actor();
-        e.submit(
+        e.enqueue(
             sid,
             Intent::Move {
                 actor,
                 direction: Direction::South,
             },
         );
+        e.tick();
         let view = e.poll(sid);
         assert!(view.contains(&PresentationNode::Denied(
             "You see no exit in that direction.".to_string()
@@ -568,26 +548,26 @@ mod tests {
     }
 
     #[test]
-    fn submit_on_unknown_session_is_noop() {
+    fn enqueue_on_unknown_session_is_noop() {
         let (mut e, _sid, actor) = engine_with_actor();
-        e.submit(SessionId(999), Intent::Look { actor });
+        e.enqueue(SessionId(999), Intent::Look { actor });
+        e.tick();
         assert!(e.poll(SessionId(999)).is_empty());
     }
 
     #[test]
-    fn submit_ignores_intent_acting_as_a_different_actor() {
+    fn enqueue_ignores_intent_acting_as_a_different_actor() {
         // A session bound to "nathan" cannot drive some other actor.
         let (mut e, sid, _actor) = engine_with_actor();
         let other = EntityId::new("snakewood/pc/impostor").unwrap();
-        e.submit(
+        e.enqueue(
             sid,
             Intent::Move {
                 actor: other.clone(),
                 direction: Direction::North,
             },
         );
-        // The bound actor did not move, the foreign actor is untouched, and the
-        // session received nothing.
+        e.tick();
         assert_eq!(
             e.realm()
                 .mob_location(&EntityId::new("snakewood/pc/nathan").unwrap())
@@ -717,13 +697,14 @@ mod tests {
             let mut e = Engine::new(realm, Box::new(ManualClock::new(1000)));
             e.attach_store(Box::new(store));
             let sid = e.connect(EntityId::new("snakewood/pc/nathan").unwrap());
-            e.submit(
+            e.enqueue(
                 sid,
                 Intent::Move {
                     actor: EntityId::new("snakewood/pc/nathan").unwrap(),
                     direction: Direction::North,
                 },
             );
+            e.tick();
             e.checkpoint("player moved north").unwrap();
         }
         // Second engine: boot from the same dir — the actor is at the moved location.
