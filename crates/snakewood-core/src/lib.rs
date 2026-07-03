@@ -12,8 +12,8 @@ pub mod world;
 
 pub use direction::Direction;
 pub use fabric::{
-    dispatch, Admission, Band, Dispatch, Effect, Event, Intent, IntentClass, Operator, Outcome,
-    PresentationKind, RateLimiterState, Responder, Rule, Scope,
+    coalesce, dispatch, Admission, Band, Dispatch, Effect, Event, Intent, IntentClass, Operator,
+    Outcome, PresentationKind, RateLimiterState, Responder, Rule, Scope,
 };
 pub use id::{EntityId, IdError};
 pub use mob::{Flag, Mob};

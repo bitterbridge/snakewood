@@ -146,6 +146,35 @@ impl RateLimiterState {
     }
 }
 
+/// Collapse redundant presentation nodes within a single batch: for each kind
+/// in `kinds`, keep only its LAST occurrence; nodes whose kind is not listed
+/// are all kept. Relative order of survivors is preserved.
+///
+/// M2 applies this per-recipient over one tick's batch only. Do NOT extend it
+/// to suppress redraws across ticks (M2 design spec §5): dropping a later-tick
+/// `RoomName` because an earlier tick emitted one would hide a room the player
+/// actually moved into.
+pub fn coalesce(nodes: Vec<PresentationNode>, kinds: &[PresentationKind]) -> Vec<PresentationNode> {
+    let is_coalesced = |k: PresentationKind| kinds.contains(&k);
+    // Index of the last occurrence of each coalesced kind.
+    let mut last_index: BTreeMap<PresentationKind, usize> = BTreeMap::new();
+    for (i, n) in nodes.iter().enumerate() {
+        let k = PresentationKind::of(n);
+        if is_coalesced(k) {
+            last_index.insert(k, i);
+        }
+    }
+    nodes
+        .into_iter()
+        .enumerate()
+        .filter(|(i, n)| {
+            let k = PresentationKind::of(n);
+            !is_coalesced(k) || last_index.get(&k) == Some(i)
+        })
+        .map(|(_, n)| n)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -353,5 +382,57 @@ mod tests {
             rl.admit(&ops, IntentClass::Look, &a, 0),
             Admission::Admit
         ));
+    }
+
+    #[test]
+    fn coalesce_keeps_last_of_each_configured_kind() {
+        // Two room redraws in one batch; collapse to the last room's nodes.
+        let nodes = vec![
+            PresentationNode::RoomName("Clearing".into()),
+            PresentationNode::Exits(vec![Direction::North]),
+            PresentationNode::RoomName("Old Well".into()),
+            PresentationNode::Exits(vec![Direction::South]),
+        ];
+        let out = coalesce(
+            nodes,
+            &[PresentationKind::RoomName, PresentationKind::Exits],
+        );
+        assert_eq!(
+            out,
+            vec![
+                PresentationNode::RoomName("Old Well".into()),
+                PresentationNode::Exits(vec![Direction::South]),
+            ]
+        );
+    }
+
+    #[test]
+    fn coalesce_leaves_unconfigured_kinds_untouched_and_ordered() {
+        let nodes = vec![
+            PresentationNode::RoomName("A".into()),
+            PresentationNode::Line("hi".into()),
+            PresentationNode::RoomName("B".into()),
+            PresentationNode::Line("bye".into()),
+        ];
+        // Only RoomName is coalesced; both Lines survive in order.
+        let out = coalesce(nodes, &[PresentationKind::RoomName]);
+        assert_eq!(
+            out,
+            vec![
+                PresentationNode::Line("hi".into()),
+                PresentationNode::RoomName("B".into()),
+                PresentationNode::Line("bye".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn coalesce_with_no_kinds_is_identity() {
+        let nodes = vec![
+            PresentationNode::RoomName("A".into()),
+            PresentationNode::RoomName("B".into()),
+        ];
+        let out = coalesce(nodes.clone(), &[]);
+        assert_eq!(out, nodes);
     }
 }
