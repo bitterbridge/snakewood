@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
+use std::time::Duration;
 
 use snakewood_core::{Direction, EntityId, GitStore, Room};
 use snakewood_daemon::api::serve_api;
@@ -45,6 +46,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = std::env::var("SNAKEWOOD_ADDR").unwrap_or_else(|_| "127.0.0.1:4000".to_string());
     let api_addr =
         std::env::var("SNAKEWOOD_API_ADDR").unwrap_or_else(|_| "127.0.0.1:4001".to_string());
+    let tick_ms: u64 = std::env::var("SNAKEWOOD_TICK_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(250);
 
     let store = GitStore::init(&data_dir).map_err(|err| format!("{err:?}"))?;
     let mut engine =
@@ -62,7 +67,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let listener = TcpListener::bind(&addr).await?;
         let api_listener = TcpListener::bind(&api_addr).await?;
         eprintln!("snakewood telnet on {addr}, command API on {api_addr}");
-        tokio::task::spawn_local(run_tick_loop(engine.clone(), 1));
+        tokio::task::spawn_local(run_tick_loop(
+            engine.clone(),
+            Duration::from_millis(tick_ms),
+        ));
         tokio::join!(
             serve(listener, engine.clone(), start_room.clone()),
             serve_api(api_listener, engine, start_room),
