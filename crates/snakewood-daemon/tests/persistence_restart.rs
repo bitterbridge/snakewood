@@ -50,13 +50,14 @@ fn live_position_survives_a_daemon_restart() {
         let mut engine = Engine::new(seeded_realm(), Box::new(ManualClock::new(1000)));
         engine.attach_store(Box::new(store));
         let sid = engine.connect(id("snakewood/pc/nathan"));
-        engine.submit(
+        engine.enqueue(
             sid,
             Intent::Move {
                 actor: id("snakewood/pc/nathan"),
                 direction: Direction::North,
             },
         );
+        engine.tick();
         assert_eq!(
             engine
                 .realm()

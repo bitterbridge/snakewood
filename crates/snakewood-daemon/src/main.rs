@@ -1,8 +1,11 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
+use std::time::Duration;
 
-use snakewood_core::{Direction, EntityId, GitStore, Room};
+use snakewood_core::{
+    Direction, EntityId, GitStore, IntentClass, Operator, PresentationKind, Room, Scope,
+};
 use snakewood_daemon::api::serve_api;
 use snakewood_daemon::telnet::{run_tick_loop, serve};
 use snakewood_daemon::{Engine, SystemClock};
@@ -39,17 +42,52 @@ fn seed_if_empty(engine: &mut Engine) -> Result<(), Box<dyn std::error::Error>> 
     Ok(())
 }
 
+/// Attach the M2 proof operators if none are configured: rate-limit movement
+/// (one step per 4 ticks per actor) and coalesce redundant room redraws.
+fn seed_operators_if_empty(engine: &mut Engine) -> Result<(), Box<dyn std::error::Error>> {
+    if !engine.realm().operators.is_empty() {
+        return Ok(());
+    }
+    engine.realm_mut().operators = vec![
+        Operator::RateLimit {
+            on: IntentClass::Move,
+            per_ticks: 4,
+            scope: Scope::PerActor,
+            deny: Some("You catch your breath before moving again.".to_string()),
+        },
+        Operator::Coalesce {
+            on: vec![
+                PresentationKind::RoomName,
+                PresentationKind::RoomDescription,
+                PresentationKind::Exits,
+                PresentationKind::Occupants,
+            ],
+            within_ticks: 1,
+            scope: Scope::PerActor,
+        },
+    ];
+    engine
+        .checkpoint("seed M2 operators")
+        .map_err(|err| format!("{err:?}"))?;
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let data_dir =
         std::env::var("SNAKEWOOD_DATA").unwrap_or_else(|_| "./snakewood-data".to_string());
     let addr = std::env::var("SNAKEWOOD_ADDR").unwrap_or_else(|_| "127.0.0.1:4000".to_string());
     let api_addr =
         std::env::var("SNAKEWOOD_API_ADDR").unwrap_or_else(|_| "127.0.0.1:4001".to_string());
+    let tick_ms: u64 = std::env::var("SNAKEWOOD_TICK_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(250);
 
     let store = GitStore::init(&data_dir).map_err(|err| format!("{err:?}"))?;
     let mut engine =
         Engine::boot(Box::new(store), Box::new(SystemClock)).map_err(|err| format!("{err:?}"))?;
     seed_if_empty(&mut engine)?;
+    seed_operators_if_empty(&mut engine)?;
     engine.set_snapshot_interval(3600);
     let engine = Rc::new(RefCell::new(engine));
     let start_room = id("snakewood/clearing");
@@ -62,7 +100,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let listener = TcpListener::bind(&addr).await?;
         let api_listener = TcpListener::bind(&api_addr).await?;
         eprintln!("snakewood telnet on {addr}, command API on {api_addr}");
-        tokio::task::spawn_local(run_tick_loop(engine.clone(), 1));
+        tokio::task::spawn_local(run_tick_loop(
+            engine.clone(),
+            Duration::from_millis(tick_ms),
+        ));
         tokio::join!(
             serve(listener, engine.clone(), start_room.clone()),
             serve_api(api_listener, engine, start_room),

@@ -1,12 +1,13 @@
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 
 use snakewood_core::EntityId;
 
-use crate::api::{handle_api_request, ApiRequest, ApiResponse};
+use crate::api::{build_drain_response, handle_api_request, ApiOutcome, ApiRequest, ApiResponse};
 use crate::telnet::despawn_player;
 use crate::{Engine, SessionId};
 
@@ -37,6 +38,22 @@ enum RequestKind {
     Disconnected(SessionId),
     /// Anything else: doesn't affect tracking.
     Other,
+}
+
+/// Poll until the engine has completed at least one drain past `before`, or a
+/// safety timeout elapses (a stuck tick loop must not hang the connection).
+///
+/// A bounded poll is used deliberately in place of the design's `tokio::Notify`:
+/// the timeout guarantees a request degrades to an empty response rather than
+/// hanging the connection if the tick loop stalls. `drain_count` increments
+/// every drain, so this always makes forward progress once the loop fires.
+async fn wait_for_drain(engine: &Rc<RefCell<Engine>>, before: u64) {
+    for _ in 0..300 {
+        if engine.borrow().drain_count() > before {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
 }
 
 /// Drive one structured-API connection.
@@ -80,12 +97,15 @@ async fn handle_api_connection(
                         }
                         _ => RequestKind::Other,
                     };
-                    let mut e = engine.borrow_mut();
-                    let resp = handle_api_request(&mut e, req, &start_room);
-                    if let ApiResponse::Connected { session, .. } = &resp {
+                    let outcome = {
+                        let mut e = engine.borrow_mut();
+                        handle_api_request(&mut e, req, &start_room)
+                    };
+                    // Track any session this request created, for cleanup.
+                    if let ApiOutcome::AwaitDrain { session, .. } = &outcome {
                         match kind {
-                            RequestKind::Ephemeral => ephemeral.push(SessionId(*session)),
-                            RequestKind::Persistent => persistent.push(SessionId(*session)),
+                            RequestKind::Ephemeral => ephemeral.push(*session),
+                            RequestKind::Persistent => persistent.push(*session),
                             _ => {}
                         }
                     }
@@ -93,7 +113,21 @@ async fn handle_api_connection(
                         ephemeral.retain(|s| *s != sid);
                         persistent.retain(|s| *s != sid);
                     }
-                    resp
+                    match outcome {
+                        ApiOutcome::Ready(resp) => resp,
+                        ApiOutcome::AwaitDrain {
+                            session,
+                            before,
+                            shape,
+                        } => {
+                            wait_for_drain(&engine, before).await;
+                            let view = {
+                                let mut e = engine.borrow_mut();
+                                e.poll(session)
+                            };
+                            build_drain_response(shape, session, view)
+                        }
+                    }
                 }
                 Err(err) => ApiResponse::Error {
                     message: format!("bad request: {err}"),

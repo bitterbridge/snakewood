@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
 use snakewood_core::{
-    dispatch, Direction, EntityId, Intent, PresentationNode, Realm, Room, StoreError, WorldStore,
+    coalesce, dispatch, Admission, Direction, EntityId, Intent, IntentClass, Operator,
+    PresentationKind, PresentationNode, RateLimiterState, Realm, Room, StoreError, WorldStore,
 };
 
 use crate::session::{Session, SessionId};
@@ -28,6 +29,9 @@ pub struct Engine {
     store: Option<Box<dyn WorldStore>>,
     snapshot_interval: Option<i64>,
     last_snapshot: i64,
+    intent_queue: Vec<(SessionId, Intent)>,
+    rate_limiter: RateLimiterState,
+    drain_count: u64,
 }
 
 impl Engine {
@@ -42,6 +46,9 @@ impl Engine {
             store: None,
             snapshot_interval: None,
             last_snapshot: 0,
+            intent_queue: Vec::new(),
+            rate_limiter: RateLimiterState::default(),
+            drain_count: 0,
         }
     }
 
@@ -81,24 +88,33 @@ impl Engine {
         &mut self.realm
     }
 
-    /// Dispatch `intent` and fan the resulting presentation out to sessions.
-    ///
-    /// No-op unless `id` is a live session AND the intent acts as that session's
-    /// own actor — a session may only drive the actor it is bound to. This is the
-    /// authorization seam the transports (telnet, MCP) rely on.
-    pub fn submit(&mut self, id: SessionId, intent: Intent) {
+    /// Authorize and buffer an intent for the next tick's drain. A session may
+    /// only enqueue intents for the actor it is bound to.
+    pub fn enqueue(&mut self, id: SessionId, intent: Intent) {
         let authorized = matches!(self.sessions.get(&id), Some(s) if &s.actor == intent.actor());
         if !authorized {
             return;
         }
-        let result = dispatch(&mut self.realm, intent);
-        for (recipient, node) in result.messages {
-            for session in self.sessions.values_mut() {
-                if session.actor == recipient {
-                    session.outbox.push(node.clone());
-                }
-            }
-        }
+        self.intent_queue.push((id, intent));
+    }
+
+    /// How many times the intent queue has been drained (one per `tick`).
+    pub fn drain_count(&self) -> u64 {
+        self.drain_count
+    }
+
+    /// Sessions whose outbox currently holds undelivered presentation.
+    ///
+    /// Provided for a future shared-flush / drain-notify delivery path. The M2
+    /// transports each poll only their own session on a per-connection flush,
+    /// so this is not yet wired into delivery; the M1 backlog item it will
+    /// eventually retire (avoid polling every session per heartbeat) is still open.
+    pub fn sessions_with_pending(&self) -> Vec<SessionId> {
+        self.sessions
+            .iter()
+            .filter(|(_, s)| !s.outbox.is_empty())
+            .map(|(id, _)| *id)
+            .collect()
     }
 
     /// Drain a session's pending presentation.
@@ -112,7 +128,77 @@ impl Engine {
     /// Advance the logical tick counter by one; returns the new count.
     pub fn tick(&mut self) -> u64 {
         self.tick += 1;
+        self.drain();
         self.tick
+    }
+
+    /// Drain the intent queue for the current tick: gate each intent through
+    /// RateLimit operators, dispatch the admitted ones, coalesce the resulting
+    /// directed presentation per recipient, and flush to session outboxes.
+    fn drain(&mut self) {
+        let queue = std::mem::take(&mut self.intent_queue);
+        let tick = self.tick;
+        let mut batched: Vec<(EntityId, PresentationNode)> = Vec::new();
+
+        for (_sid, intent) in queue {
+            let actor = intent.actor().clone();
+            let class = IntentClass::of(&intent);
+            match self
+                .rate_limiter
+                .admit(&self.realm.operators, class, &actor, tick)
+            {
+                Admission::Admit => {
+                    let result = dispatch(&mut self.realm, intent);
+                    batched.extend(result.messages);
+                    // Notify broadcast to bystanders is deferred to M3; events
+                    // stay in `result.events` unused here.
+                }
+                Admission::Drop { deny } => {
+                    let text = deny.unwrap_or_else(|| self.realm.rate_limit_message.clone());
+                    batched.push((actor, PresentationNode::Denied(text)));
+                }
+            }
+        }
+
+        // Kinds any Coalesce operator targets (union across all Coalesce ops).
+        let coalesced_kinds: Vec<PresentationKind> = self
+            .realm
+            .operators
+            .iter()
+            .filter_map(|op| match op {
+                Operator::Coalesce { on, .. } => Some(on.clone()),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+
+        // Distinct recipients in first-seen order (deterministic).
+        let mut recipients: Vec<EntityId> = Vec::new();
+        for (r, _) in &batched {
+            if !recipients.contains(r) {
+                recipients.push(r.clone());
+            }
+        }
+
+        for recipient in recipients {
+            let nodes: Vec<PresentationNode> = batched
+                .iter()
+                .filter(|(r, _)| *r == recipient)
+                .map(|(_, n)| n.clone())
+                .collect();
+            let nodes = if coalesced_kinds.is_empty() {
+                nodes
+            } else {
+                coalesce(nodes, &coalesced_kinds)
+            };
+            for session in self.sessions.values_mut() {
+                if session.actor == recipient {
+                    session.outbox.extend(nodes.iter().cloned());
+                }
+            }
+        }
+
+        self.drain_count += 1;
     }
 
     pub fn tick_count(&self) -> u64 {
@@ -223,7 +309,10 @@ impl Engine {
 mod tests {
     use super::*;
     use crate::ManualClock;
-    use snakewood_core::{Direction, Flag, GitStore, Intent, Mob, PresentationNode, Room, World};
+    use snakewood_core::{
+        Direction, Flag, GitStore, Intent, IntentClass, Mob, Operator, PresentationKind,
+        PresentationNode, Room, Scope, World,
+    };
     use std::collections::BTreeSet;
     use tempfile::tempdir;
 
@@ -295,6 +384,114 @@ mod tests {
         (e, sid, actor)
     }
 
+    fn engine_with_actor_and_ops(ops: Vec<Operator>) -> (Engine, SessionId, EntityId) {
+        let (mut e, sid, actor) = engine_with_actor();
+        e.realm_mut().operators = ops;
+        (e, sid, actor)
+    }
+
+    #[test]
+    fn drain_rate_limits_moves_across_ticks() {
+        // north then south is a round trip between the two rooms.
+        let ops = vec![Operator::RateLimit {
+            on: IntentClass::Move,
+            per_ticks: 2,
+            scope: Scope::PerActor,
+            deny: Some("Too fast.".to_string()),
+        }];
+        let (mut e, sid, actor) = engine_with_actor_and_ops(ops);
+
+        // Tick 1: enqueue two moves (N then S). Only the first is admitted.
+        e.enqueue(
+            sid,
+            Intent::Move {
+                actor: actor.clone(),
+                direction: Direction::North,
+            },
+        );
+        e.enqueue(
+            sid,
+            Intent::Move {
+                actor: actor.clone(),
+                direction: Direction::South,
+            },
+        );
+        e.tick();
+        // First move (north) committed; second dropped -> still at old-well.
+        assert_eq!(
+            e.realm().mob_location(&actor).map(|r| r.as_str()),
+            Some("snakewood/old-well")
+        );
+        let out = e.poll(sid);
+        // The dropped move produced a Denied node with the configured text.
+        assert!(out
+            .iter()
+            .any(|n| *n == PresentationNode::Denied("Too fast.".to_string())));
+    }
+
+    #[test]
+    fn drain_coalesces_repeated_room_views_in_one_tick() {
+        // No rate limit; coalesce room-view kinds. Two Looks in one tick each emit a
+        // full room view; they collapse to one. (Uses Look, not Move, so it works
+        // with the one-way two-room test world.)
+        let ops = vec![Operator::Coalesce {
+            on: vec![
+                PresentationKind::RoomName,
+                PresentationKind::RoomDescription,
+                PresentationKind::Exits,
+                PresentationKind::Occupants,
+            ],
+            within_ticks: 1,
+            scope: Scope::PerActor,
+        }];
+        let (mut e, sid, actor) = engine_with_actor_and_ops(ops);
+        e.enqueue(
+            sid,
+            Intent::Look {
+                actor: actor.clone(),
+            },
+        );
+        e.enqueue(
+            sid,
+            Intent::Look {
+                actor: actor.clone(),
+            },
+        );
+        e.tick();
+        let out = e.poll(sid);
+        // Exactly one RoomName survives, naming the actor's room.
+        let room_names: Vec<&PresentationNode> = out
+            .iter()
+            .filter(|n| matches!(n, PresentationNode::RoomName(_)))
+            .collect();
+        assert_eq!(room_names.len(), 1, "views not coalesced: {out:?}");
+        assert_eq!(
+            room_names[0],
+            &PresentationNode::RoomName("Snakewood Clearing".to_string())
+        );
+    }
+
+    #[test]
+    fn drain_with_no_operators_dispatches_normally() {
+        let (mut e, sid, actor) = engine_with_actor();
+        e.enqueue(
+            sid,
+            Intent::Move {
+                actor: actor.clone(),
+                direction: Direction::North,
+            },
+        );
+        e.tick();
+        assert_eq!(
+            e.realm().mob_location(&actor).map(|r| r.as_str()),
+            Some("snakewood/old-well")
+        );
+        assert!(e
+            .poll(sid)
+            .iter()
+            .any(|n| *n == PresentationNode::RoomName("The Old Well".to_string())));
+    }
+
     #[test]
     fn connect_assigns_distinct_ids_and_binds_actor() {
         let mut e = engine();
@@ -318,21 +515,20 @@ mod tests {
     }
 
     #[test]
-    fn submit_move_routes_arrival_view_to_session_and_relocates() {
+    fn drain_move_routes_arrival_view_to_session_and_relocates() {
         let (mut e, sid, actor) = engine_with_actor();
-        e.submit(
+        e.enqueue(
             sid,
             Intent::Move {
                 actor: actor.clone(),
                 direction: Direction::North,
             },
         );
-        // world state changed
+        e.tick();
         assert_eq!(
             e.realm().mob_location(&actor).map(|r| r.as_str()),
             Some("snakewood/old-well")
         );
-        // arrival view delivered to the session
         let view = e.poll(sid);
         assert!(view.contains(&PresentationNode::RoomName("The Old Well".to_string())));
         // draining leaves the outbox empty
@@ -340,15 +536,16 @@ mod tests {
     }
 
     #[test]
-    fn submit_move_no_exit_routes_fallback_message() {
+    fn drain_move_no_exit_routes_fallback_message() {
         let (mut e, sid, actor) = engine_with_actor();
-        e.submit(
+        e.enqueue(
             sid,
             Intent::Move {
                 actor,
                 direction: Direction::South,
             },
         );
+        e.tick();
         let view = e.poll(sid);
         assert!(view.contains(&PresentationNode::Denied(
             "You see no exit in that direction.".to_string()
@@ -356,26 +553,26 @@ mod tests {
     }
 
     #[test]
-    fn submit_on_unknown_session_is_noop() {
+    fn enqueue_on_unknown_session_is_noop() {
         let (mut e, _sid, actor) = engine_with_actor();
-        e.submit(SessionId(999), Intent::Look { actor });
+        e.enqueue(SessionId(999), Intent::Look { actor });
+        e.tick();
         assert!(e.poll(SessionId(999)).is_empty());
     }
 
     #[test]
-    fn submit_ignores_intent_acting_as_a_different_actor() {
+    fn enqueue_ignores_intent_acting_as_a_different_actor() {
         // A session bound to "nathan" cannot drive some other actor.
         let (mut e, sid, _actor) = engine_with_actor();
         let other = EntityId::new("snakewood/pc/impostor").unwrap();
-        e.submit(
+        e.enqueue(
             sid,
             Intent::Move {
                 actor: other.clone(),
                 direction: Direction::North,
             },
         );
-        // The bound actor did not move, the foreign actor is untouched, and the
-        // session received nothing.
+        e.tick();
         assert_eq!(
             e.realm()
                 .mob_location(&EntityId::new("snakewood/pc/nathan").unwrap())
@@ -384,6 +581,44 @@ mod tests {
         );
         assert!(e.realm().mob_location(&other).is_none());
         assert!(e.poll(sid).is_empty());
+    }
+
+    #[test]
+    fn enqueue_authorizes_and_buffers_without_dispatching() {
+        let (mut e, sid, actor) = engine_with_actor();
+        // Enqueue does not dispatch: position unchanged, outbox empty, queue holds 1.
+        e.enqueue(
+            sid,
+            Intent::Move {
+                actor: actor.clone(),
+                direction: Direction::North,
+            },
+        );
+        assert_eq!(
+            e.realm().mob_location(&actor).map(|r| r.as_str()),
+            Some("snakewood/clearing")
+        );
+        assert!(e.poll(sid).is_empty());
+        assert_eq!(e.drain_count(), 0);
+    }
+
+    #[test]
+    fn enqueue_rejects_foreign_actor() {
+        let (mut e, sid, _actor) = engine_with_actor();
+        let stranger = EntityId::new("snakewood/pc/stranger").unwrap();
+        e.enqueue(
+            sid,
+            Intent::Move {
+                actor: stranger,
+                direction: Direction::North,
+            },
+        );
+        // Nothing queued: a later tick drains nothing and drain_count still advances by 1.
+        let before = e.drain_count();
+        e.tick();
+        assert_eq!(e.drain_count(), before + 1);
+        // The unauthorized move never happened.
+        assert!(e.sessions_with_pending().is_empty());
     }
 
     #[test]
@@ -467,13 +702,14 @@ mod tests {
             let mut e = Engine::new(realm, Box::new(ManualClock::new(1000)));
             e.attach_store(Box::new(store));
             let sid = e.connect(EntityId::new("snakewood/pc/nathan").unwrap());
-            e.submit(
+            e.enqueue(
                 sid,
                 Intent::Move {
                     actor: EntityId::new("snakewood/pc/nathan").unwrap(),
                     direction: Direction::North,
                 },
             );
+            e.tick();
             e.checkpoint("player moved north").unwrap();
         }
         // Second engine: boot from the same dir — the actor is at the moved location.

@@ -5,7 +5,9 @@ use git2::{IndexAddOption, Repository, Signature, Time};
 use walkdir::WalkDir;
 
 use crate::store::{CommitId, StoreError, WorldStore};
-use crate::{from_ron, room_from_ron, room_to_ron, to_ron, EntityId, Mob, Room, Rule, World};
+use crate::{
+    from_ron, room_from_ron, room_to_ron, to_ron, EntityId, Mob, Operator, Room, Rule, World,
+};
 
 fn io_err<E: std::fmt::Display>(e: E) -> StoreError {
     StoreError::Io(e.to_string())
@@ -59,6 +61,10 @@ impl GitStore {
 
     fn rules_path(&self) -> PathBuf {
         self.root.join("world").join("rules.ron")
+    }
+
+    fn operators_path(&self) -> PathBuf {
+        self.root.join("world").join("operators.ron")
     }
 }
 
@@ -201,6 +207,24 @@ impl WorldStore for GitStore {
         let text = fs::read_to_string(&path).map_err(io_err)?;
         from_ron(&text).map_err(|e| StoreError::Parse(e.to_string()))
     }
+
+    fn save_operators(&mut self, operators: &[Operator]) -> Result<(), StoreError> {
+        let path = self.operators_path();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(io_err)?;
+        }
+        fs::write(&path, to_ron(operators)).map_err(io_err)?;
+        Ok(())
+    }
+
+    fn load_operators(&self) -> Result<Vec<Operator>, StoreError> {
+        let path = self.operators_path();
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let text = fs::read_to_string(&path).map_err(io_err)?;
+        from_ron(&text).map_err(|e| StoreError::Parse(e.to_string()))
+    }
 }
 
 #[cfg(test)]
@@ -314,6 +338,33 @@ mod tests {
         assert_eq!(reloaded.world, realm.world);
         assert_eq!(reloaded.mobs, realm.mobs);
         assert_eq!(reloaded.rules, realm.rules);
+    }
+
+    #[test]
+    fn operators_round_trip_through_git() {
+        use crate::{IntentClass, Operator, Scope};
+        let dir = tempdir().unwrap();
+        let mut store = GitStore::init(dir.path()).unwrap();
+        let mut realm = crate::Realm::new({
+            let mut w = World::default();
+            w.insert_room(clearing());
+            w
+        });
+        realm.operators.push(Operator::RateLimit {
+            on: IntentClass::Move,
+            per_ticks: 4,
+            scope: Scope::PerActor,
+            deny: Some("Slow down.".to_string()),
+        });
+        store.save_realm(&realm).unwrap();
+        store
+            .commit("save realm with operators", 1_700_000_000)
+            .unwrap();
+
+        let reloaded = GitStore::init(dir.path()).unwrap().load_realm().unwrap();
+        assert_eq!(reloaded.operators, realm.operators);
+        // Written at the world/ root, parallel to rules.ron.
+        assert!(dir.path().join("world/operators.ron").exists());
     }
 
     #[test]

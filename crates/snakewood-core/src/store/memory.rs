@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::store::{CommitId, StoreError, WorldStore};
-use crate::{EntityId, Mob, Room, Rule, World};
+use crate::{EntityId, Mob, Operator, Room, Rule, World};
 
 /// An in-memory store for fast tests. "Commits" are recorded as snapshots so
 /// behavior mirrors the git store closely enough for logic tests.
@@ -10,6 +10,7 @@ pub struct MemoryStore {
     rooms: BTreeMap<EntityId, Room>,
     mobs: BTreeMap<EntityId, Mob>,
     rules: Vec<Rule>,
+    operators: Vec<Operator>,
     commits: Vec<String>,
     next_commit: u64,
 }
@@ -64,6 +65,15 @@ impl WorldStore for MemoryStore {
 
     fn load_rules(&self) -> Result<Vec<Rule>, StoreError> {
         Ok(self.rules.clone())
+    }
+
+    fn save_operators(&mut self, operators: &[Operator]) -> Result<(), StoreError> {
+        self.operators = operators.to_vec();
+        Ok(())
+    }
+
+    fn load_operators(&self) -> Result<Vec<Operator>, StoreError> {
+        Ok(self.operators.clone())
     }
 }
 
