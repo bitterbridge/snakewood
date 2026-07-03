@@ -66,7 +66,10 @@ fn render_node(node: &PresentationNode, style: RenderStyle) -> Option<String> {
             Some(spans.iter().map(|sp| render_span(sp, style)).collect())
         }
         PresentationNode::Denied(spans) => {
-            // Denial base style is red; spans are Default so no nested colour.
+            // Denial base style is red. Spans are all Default in M2, so we wrap
+            // the whole line rather than styling per span. NOTE(M3): if inline
+            // roles (e.g. Actor) ever reach a Denied node, switch to per-span
+            // rendering under a red base so those roles aren't collapsed here.
             let body: String = spans.iter().map(|sp| sp.text.as_str()).collect();
             Some(styled(&body, Some("\x1b[31m"), style)) // red
         }
