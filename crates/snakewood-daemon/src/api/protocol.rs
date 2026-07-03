@@ -30,7 +30,7 @@ pub enum ApiRequest {
 }
 
 /// A structured response to an API client.
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum ApiResponse {
     Connected {
