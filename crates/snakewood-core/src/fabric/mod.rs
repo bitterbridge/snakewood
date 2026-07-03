@@ -13,7 +13,7 @@ pub use dispatch::{dispatch, Dispatch};
 pub use gather::{gather, Candidate};
 pub use handler::{Band, Effect, Outcome, Responder, Rule};
 pub use intent::{Event, Intent};
-pub use operator::{IntentClass, Operator, PresentationKind, Scope};
+pub use operator::{Admission, IntentClass, Operator, PresentationKind, RateLimiterState, Scope};
 pub use predicate::{eval as eval_predicate, Party, Predicate};
 pub use resolve::{resolve, salient, Decision};
 pub use trigger::Trigger;

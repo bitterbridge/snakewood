@@ -1,7 +1,9 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::fabric::Intent;
-use crate::PresentationNode;
+use crate::{EntityId, PresentationNode};
 
 /// Which intent class an operator matches. Coarser than `Trigger` — operators
 /// gate by class, not by exact direction.
@@ -74,6 +76,74 @@ pub enum Operator {
         within_ticks: u64,
         scope: Scope,
     },
+}
+
+/// The outcome of a rate-limit admission check.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Admission {
+    Admit,
+    Drop { deny: Option<String> },
+}
+
+/// Runtime admission state for all `RateLimit` operators. Keyed by
+/// `(operator index, scope key)` -> last admitted tick. Held by the host
+/// (runtime-only, never persisted).
+#[derive(Debug, Default, Clone)]
+pub struct RateLimiterState {
+    last_admitted: BTreeMap<(usize, Option<EntityId>), u64>,
+}
+
+fn scope_key(scope: Scope, actor: &EntityId) -> Option<EntityId> {
+    match scope {
+        Scope::Global => None,
+        Scope::PerActor => Some(actor.clone()),
+    }
+}
+
+impl RateLimiterState {
+    /// Decide whether an intent of `class` by `actor` is admitted at `tick`,
+    /// against the `RateLimit` operators in `operators`. Records the admission
+    /// (updating internal state) only when admitted. On a block, returns the
+    /// first blocking operator's `deny` text.
+    pub fn admit(
+        &mut self,
+        operators: &[Operator],
+        class: IntentClass,
+        actor: &EntityId,
+        tick: u64,
+    ) -> Admission {
+        // Pass 1: is any matching operator currently blocking?
+        for (idx, op) in operators.iter().enumerate() {
+            if let Operator::RateLimit {
+                on,
+                per_ticks,
+                scope,
+                deny,
+            } = op
+            {
+                if *on != class {
+                    continue;
+                }
+                let key = (idx, scope_key(*scope, actor));
+                if let Some(&last) = self.last_admitted.get(&key) {
+                    if tick < last + *per_ticks {
+                        return Admission::Drop { deny: deny.clone() };
+                    }
+                }
+            }
+        }
+        // Pass 2: admit — record the admission for every matching operator.
+        for (idx, op) in operators.iter().enumerate() {
+            if let Operator::RateLimit { on, scope, .. } = op {
+                if *on != class {
+                    continue;
+                }
+                self.last_admitted
+                    .insert((idx, scope_key(*scope, actor)), tick);
+            }
+        }
+        Admission::Admit
+    }
 }
 
 #[cfg(test)]
@@ -193,5 +263,95 @@ mod tests {
             let back: Vec<Operator> = from_ron(&text).unwrap();
             prop_assert_eq!(back, ops);
         }
+    }
+
+    fn move_rl(per_ticks: u64, scope: Scope) -> Vec<Operator> {
+        vec![Operator::RateLimit {
+            on: IntentClass::Move,
+            per_ticks,
+            scope,
+            deny: Some("Slow down.".to_string()),
+        }]
+    }
+
+    #[test]
+    fn rate_limit_admits_one_per_window_then_drops() {
+        let ops = move_rl(3, Scope::PerActor);
+        let a = EntityId::new("player/anon-0").unwrap();
+        let mut rl = RateLimiterState::default();
+        // First admission at tick 0 always allowed.
+        assert!(matches!(
+            rl.admit(&ops, IntentClass::Move, &a, 0),
+            Admission::Admit
+        ));
+        // Within the window (ticks 1, 2) -> dropped with the configured deny.
+        match rl.admit(&ops, IntentClass::Move, &a, 1) {
+            Admission::Drop { deny } => assert_eq!(deny.as_deref(), Some("Slow down.")),
+            Admission::Admit => panic!("should be dropped inside window"),
+        }
+        assert!(matches!(
+            rl.admit(&ops, IntentClass::Move, &a, 2),
+            Admission::Drop { .. }
+        ));
+        // At tick 3 the window reopens.
+        assert!(matches!(
+            rl.admit(&ops, IntentClass::Move, &a, 3),
+            Admission::Admit
+        ));
+    }
+
+    #[test]
+    fn per_actor_scope_has_independent_buckets() {
+        let ops = move_rl(3, Scope::PerActor);
+        let a = EntityId::new("player/anon-0").unwrap();
+        let b = EntityId::new("player/anon-1").unwrap();
+        let mut rl = RateLimiterState::default();
+        assert!(matches!(
+            rl.admit(&ops, IntentClass::Move, &a, 0),
+            Admission::Admit
+        ));
+        // b is a different bucket -> admitted at the same tick.
+        assert!(matches!(
+            rl.admit(&ops, IntentClass::Move, &b, 0),
+            Admission::Admit
+        ));
+        // a is still limited.
+        assert!(matches!(
+            rl.admit(&ops, IntentClass::Move, &a, 1),
+            Admission::Drop { .. }
+        ));
+    }
+
+    #[test]
+    fn global_scope_shares_one_bucket() {
+        let ops = move_rl(3, Scope::Global);
+        let a = EntityId::new("player/anon-0").unwrap();
+        let b = EntityId::new("player/anon-1").unwrap();
+        let mut rl = RateLimiterState::default();
+        assert!(matches!(
+            rl.admit(&ops, IntentClass::Move, &a, 0),
+            Admission::Admit
+        ));
+        // Same global bucket -> b is dropped even though it's a different actor.
+        assert!(matches!(
+            rl.admit(&ops, IntentClass::Move, &b, 1),
+            Admission::Drop { .. }
+        ));
+    }
+
+    #[test]
+    fn non_matching_class_is_always_admitted() {
+        let ops = move_rl(3, Scope::PerActor);
+        let a = EntityId::new("player/anon-0").unwrap();
+        let mut rl = RateLimiterState::default();
+        // Look is not rate-limited by a Move operator.
+        assert!(matches!(
+            rl.admit(&ops, IntentClass::Look, &a, 0),
+            Admission::Admit
+        ));
+        assert!(matches!(
+            rl.admit(&ops, IntentClass::Look, &a, 0),
+            Admission::Admit
+        ));
     }
 }
