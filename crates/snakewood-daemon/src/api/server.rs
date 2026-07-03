@@ -25,11 +25,28 @@ pub async fn serve_api(listener: TcpListener, engine: Rc<RefCell<Engine>>, start
     }
 }
 
+/// How a request's resulting session (if any) should be cleaned up when the
+/// connection ends.
+#[derive(Clone, Copy)]
+enum RequestKind {
+    /// `Connect`: despawn (mob + session) on cleanup.
+    Ephemeral,
+    /// `ConnectAs`: disconnect the session only; the named mob persists.
+    Persistent,
+    /// `Disconnect { session }`: already handled inline; stop tracking it.
+    Disconnected(SessionId),
+    /// Anything else: doesn't affect tracking.
+    Other,
+}
+
 /// Drive one structured-API connection.
 ///
 /// Mirrors telnet's always-cleanup pattern: every player spawned on this
-/// connection is despawned when the connection ends, whether that's a clean
+/// connection is cleaned up when the connection ends, whether that's a clean
 /// EOF, an explicit `Disconnect`, or the TCP stream dropping mid-read.
+/// `Connect`-spawned (ephemeral) players are despawned entirely; `ConnectAs`
+/// (persistent, named) actors only have their session disconnected — their
+/// mob survives so a later `ConnectAs` can reattach to it.
 async fn handle_api_connection(
     stream: TcpStream,
     engine: Rc<RefCell<Engine>>,
@@ -39,29 +56,42 @@ async fn handle_api_connection(
     let mut lines = BufReader::new(read_half).lines();
 
     // Sessions this connection has spawned but not yet explicitly disconnected.
-    let mut created: Vec<SessionId> = Vec::new();
+    let mut ephemeral: Vec<SessionId> = Vec::new();
+    let mut persistent: Vec<SessionId> = Vec::new();
 
     let result: std::io::Result<()> = async {
         while let Some(line) = lines.next_line().await? {
             if line.trim().is_empty() {
                 continue;
             }
-            // Parse, then dispatch in a tight borrow block (no borrow across await).
-            let response = match serde_json::from_str::<ApiRequest>(&line) {
+            // Parse once, then dispatch in a tight borrow block (no borrow across await).
+            let parsed = serde_json::from_str::<ApiRequest>(&line);
+            let response = match parsed {
                 Ok(req) => {
-                    // A Disconnect despawns inside handle_api_request itself, so
-                    // stop tracking that session here to avoid a double despawn.
-                    let disconnecting = match &req {
-                        ApiRequest::Disconnect { session } => Some(SessionId(*session)),
-                        _ => None,
+                    // Classify the request so cleanup knows how to treat any
+                    // session it creates. A Disconnect despawns inside
+                    // handle_api_request itself, so stop tracking that
+                    // session here to avoid a double despawn.
+                    let kind = match &req {
+                        ApiRequest::Connect => RequestKind::Ephemeral,
+                        ApiRequest::ConnectAs { .. } => RequestKind::Persistent,
+                        ApiRequest::Disconnect { session } => {
+                            RequestKind::Disconnected(SessionId(*session))
+                        }
+                        _ => RequestKind::Other,
                     };
                     let mut e = engine.borrow_mut();
                     let resp = handle_api_request(&mut e, req, &start_room);
                     if let ApiResponse::Connected { session, .. } = &resp {
-                        created.push(SessionId(*session));
+                        match kind {
+                            RequestKind::Ephemeral => ephemeral.push(SessionId(*session)),
+                            RequestKind::Persistent => persistent.push(SessionId(*session)),
+                            _ => {}
+                        }
                     }
-                    if let Some(sid) = disconnecting {
-                        created.retain(|s| *s != sid);
+                    if let RequestKind::Disconnected(sid) = kind {
+                        ephemeral.retain(|s| *s != sid);
+                        persistent.retain(|s| *s != sid);
                     }
                     resp
                 }
@@ -79,14 +109,18 @@ async fn handle_api_connection(
     }
     .await;
 
-    // ALWAYS despawn any players this connection created, regardless of
-    // clean exit, explicit disconnect, or I/O error.
+    // ALWAYS clean up any sessions this connection created, regardless of
+    // clean exit, explicit disconnect, or I/O error. Ephemeral players are
+    // despawned entirely; persistent (named) actors only lose their session.
     {
         let mut e = engine.borrow_mut();
-        for sid in created {
+        for sid in ephemeral {
             if let Some(actor) = e.session_actor(sid).cloned() {
                 despawn_player(&mut e, sid, &actor);
             }
+        }
+        for sid in persistent {
+            e.disconnect(sid);
         }
     }
     result

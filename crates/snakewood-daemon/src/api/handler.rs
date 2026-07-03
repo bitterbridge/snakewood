@@ -1,7 +1,7 @@
 use snakewood_core::{EntityId, Intent};
 
 use crate::api::{ApiRequest, ApiResponse};
-use crate::telnet::{despawn_player, spawn_player};
+use crate::telnet::{attach_named, despawn_player, spawn_player};
 use crate::{Engine, SessionId};
 
 /// Look up the actor bound to a session, or produce an Error response.
@@ -33,6 +33,29 @@ pub fn handle_api_request(
             ApiResponse::Connected {
                 session: sid.0,
                 actor: actor.to_string(),
+                view,
+            }
+        }
+        ApiRequest::ConnectAs { actor } => {
+            let actor_id = match EntityId::new(actor.clone()) {
+                Ok(id) => id,
+                Err(_) => {
+                    return ApiResponse::Error {
+                        message: format!("invalid actor id: {actor}"),
+                    }
+                }
+            };
+            let sid = attach_named(engine, &actor_id, start_room);
+            engine.submit(
+                sid,
+                Intent::Look {
+                    actor: actor_id.clone(),
+                },
+            );
+            let view = engine.poll(sid);
+            ApiResponse::Connected {
+                session: sid.0,
+                actor: actor_id.to_string(),
                 view,
             }
         }
@@ -140,6 +163,27 @@ mod tests {
             } => {
                 assert_eq!(actor, "player/anon-0");
                 assert_eq!(session, 0);
+                assert!(view.contains(&PresentationNode::RoomName(
+                    "Snakewood Clearing".to_string()
+                )));
+            }
+            other => panic!("expected Connected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn connect_as_attaches_named_builder() {
+        let mut e = engine();
+        let resp = handle_api_request(
+            &mut e,
+            ApiRequest::ConnectAs {
+                actor: "player/mcp-builder".to_string(),
+            },
+            &start(),
+        );
+        match resp {
+            ApiResponse::Connected { actor, view, .. } => {
+                assert_eq!(actor, "player/mcp-builder");
                 assert!(view.contains(&PresentationNode::RoomName(
                     "Snakewood Clearing".to_string()
                 )));

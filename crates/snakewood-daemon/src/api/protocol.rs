@@ -7,6 +7,9 @@ use snakewood_core::{Direction, PresentationNode};
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum ApiRequest {
     Connect,
+    ConnectAs {
+        actor: String,
+    },
     Look {
         session: u64,
     },
@@ -55,6 +58,17 @@ mod tests {
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("\"op\":\"move\""));
+        let back: ApiRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, req);
+    }
+
+    #[test]
+    fn connect_as_round_trips() {
+        let req = ApiRequest::ConnectAs {
+            actor: "player/mcp-builder".to_string(),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"op\":\"connect_as\""));
         let back: ApiRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(back, req);
     }

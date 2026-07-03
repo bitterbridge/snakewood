@@ -7,7 +7,7 @@ pub mod server;
 pub mod tick;
 
 pub use parse::{is_quit, parse};
-pub use provision::{despawn_player, spawn_player};
+pub use provision::{attach_named, despawn_player, spawn_player};
 pub use render::render;
 pub use server::serve;
 pub use tick::run_tick_loop;
