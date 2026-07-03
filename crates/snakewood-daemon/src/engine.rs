@@ -104,6 +104,11 @@ impl Engine {
     }
 
     /// Sessions whose outbox currently holds undelivered presentation.
+    ///
+    /// Provided for a future shared-flush / drain-notify delivery path. The M2
+    /// transports each poll only their own session on a per-connection flush,
+    /// so this is not yet wired into delivery; the M1 backlog item it will
+    /// eventually retire (avoid polling every session per heartbeat) is still open.
     pub fn sessions_with_pending(&self) -> Vec<SessionId> {
         self.sessions
             .iter()

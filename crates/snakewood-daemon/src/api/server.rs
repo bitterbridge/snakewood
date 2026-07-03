@@ -42,6 +42,11 @@ enum RequestKind {
 
 /// Poll until the engine has completed at least one drain past `before`, or a
 /// safety timeout elapses (a stuck tick loop must not hang the connection).
+///
+/// A bounded poll is used deliberately in place of the design's `tokio::Notify`:
+/// the timeout guarantees a request degrades to an empty response rather than
+/// hanging the connection if the tick loop stalls. `drain_count` increments
+/// every drain, so this always makes forward progress once the loop fires.
 async fn wait_for_drain(engine: &Rc<RefCell<Engine>>, before: u64) {
     for _ in 0..300 {
         if engine.borrow().drain_count() > before {
