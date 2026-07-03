@@ -17,7 +17,7 @@ pub use fabric::{
 };
 pub use id::{EntityId, IdError};
 pub use mob::{Flag, Mob};
-pub use presentation::PresentationNode;
+pub use presentation::{plain_text, PresentationNode, Role, Span};
 pub use realm::Realm;
 pub use serialize::{from_ron, room_from_ron, room_to_ron, to_ron};
 pub use store::{CommitId, GitStore, MemoryStore, StoreError, WorldStore};

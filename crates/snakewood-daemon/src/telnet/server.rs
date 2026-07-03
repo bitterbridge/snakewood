@@ -6,11 +6,16 @@ use tokio::net::{TcpListener, TcpStream};
 
 use snakewood_core::{EntityId, Intent};
 
-use crate::telnet::{despawn_player, is_quit, parse, render, spawn_player};
+use crate::telnet::{despawn_player, is_quit, parse, render, spawn_player, RenderStyle};
 use crate::Engine;
 
 /// Accept connections forever, handling each on a local task.
-pub async fn serve(listener: TcpListener, engine: Rc<RefCell<Engine>>, start_room: EntityId) {
+pub async fn serve(
+    listener: TcpListener,
+    engine: Rc<RefCell<Engine>>,
+    start_room: EntityId,
+    style: RenderStyle,
+) {
     loop {
         let (stream, _addr) = match listener.accept().await {
             Ok(pair) => pair,
@@ -19,7 +24,7 @@ pub async fn serve(listener: TcpListener, engine: Rc<RefCell<Engine>>, start_roo
         let engine = engine.clone();
         let start_room = start_room.clone();
         tokio::task::spawn_local(async move {
-            let _ = handle_connection(stream, engine, start_room).await;
+            let _ = handle_connection(stream, engine, start_room, style).await;
         });
     }
 }
@@ -31,6 +36,7 @@ async fn handle_connection(
     stream: TcpStream,
     engine: Rc<RefCell<Engine>>,
     start_room: EntityId,
+    style: RenderStyle,
 ) -> std::io::Result<()> {
     use std::time::Duration;
 
@@ -99,7 +105,7 @@ async fn handle_connection(
                 _ = flush.tick() => {
                     let out = {
                         let mut e = engine.borrow_mut();
-                        render(&e.poll(sid))
+                        render(&e.poll(sid), style)
                     };
                     if !out.is_empty() {
                         write_half.write_all(out.as_bytes()).await?;

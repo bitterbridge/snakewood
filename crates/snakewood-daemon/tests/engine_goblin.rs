@@ -94,9 +94,11 @@ fn engine_delivers_block_then_passage_after_incapacitation() {
         Some("snakewood/clearing")
     );
     let view = e.poll(sid);
-    assert!(view.contains(&PresentationNode::Line(
-        "The goblin blocks your way north.".to_string()
-    )));
+    assert!(
+        view.contains(&PresentationNode::Line(snakewood_core::plain_text(
+            "The goblin blocks your way north."
+        )))
+    );
 
     // Knock the goblin unconscious — pure state change on the realm, no wiring edits.
     e.realm_mut()
@@ -122,7 +124,9 @@ fn engine_delivers_block_then_passage_after_incapacitation() {
     );
     let view = e.poll(sid);
     assert!(view.contains(&PresentationNode::RoomName("The Old Well".to_string())));
-    assert!(!view.contains(&PresentationNode::Line(
-        "The goblin blocks your way north.".to_string()
-    )));
+    assert!(
+        !view.contains(&PresentationNode::Line(snakewood_core::plain_text(
+            "The goblin blocks your way north."
+        )))
+    );
 }

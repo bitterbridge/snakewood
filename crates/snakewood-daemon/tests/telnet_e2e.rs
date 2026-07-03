@@ -4,7 +4,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use snakewood_core::{Direction, EntityId, Realm, Room, World};
-use snakewood_daemon::telnet::{run_tick_loop, serve};
+use snakewood_daemon::telnet::{run_tick_loop, serve, RenderStyle};
 use snakewood_daemon::{Engine, ManualClock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -58,7 +58,12 @@ fn connect_look_and_walk() {
         let engine = Rc::new(RefCell::new(two_room_engine()));
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        tokio::task::spawn_local(serve(listener, engine.clone(), id("snakewood/clearing")));
+        tokio::task::spawn_local(serve(
+            listener,
+            engine.clone(),
+            id("snakewood/clearing"),
+            RenderStyle::Plain,
+        ));
         tokio::task::spawn_local(run_tick_loop(engine, Duration::from_millis(20)));
 
         let mut client = TcpStream::connect(addr).await.unwrap();

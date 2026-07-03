@@ -92,7 +92,7 @@ mod tests {
     #[test]
     fn response_json_round_trips() {
         let resp = ApiResponse::Ok {
-            messages: vec![PresentationNode::Line("hi".to_string())],
+            messages: vec![PresentationNode::Line(snakewood_core::plain_text("hi"))],
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"status\":\"ok\""));

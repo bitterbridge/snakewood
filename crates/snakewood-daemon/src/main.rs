@@ -7,7 +7,7 @@ use snakewood_core::{
     Direction, EntityId, GitStore, IntentClass, Operator, PresentationKind, Room, Scope,
 };
 use snakewood_daemon::api::serve_api;
-use snakewood_daemon::telnet::{run_tick_loop, serve};
+use snakewood_daemon::telnet::{run_tick_loop, serve, RenderStyle};
 use snakewood_daemon::{Engine, SystemClock};
 use tokio::net::TcpListener;
 
@@ -82,6 +82,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(250);
+    let render_style = match std::env::var("SNAKEWOOD_ANSI").ok().as_deref() {
+        Some("0") | Some("false") | Some("off") => RenderStyle::Plain,
+        _ => RenderStyle::Ansi, // default on
+    };
 
     let store = GitStore::init(&data_dir).map_err(|err| format!("{err:?}"))?;
     let mut engine =
@@ -105,7 +109,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Duration::from_millis(tick_ms),
         ));
         tokio::join!(
-            serve(listener, engine.clone(), start_room.clone()),
+            serve(listener, engine.clone(), start_room.clone(), render_style),
             serve_api(api_listener, engine, start_room),
         );
         Ok::<(), Box<dyn std::error::Error>>(())

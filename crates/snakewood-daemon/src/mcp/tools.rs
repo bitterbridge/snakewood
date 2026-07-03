@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 use snakewood_core::Direction;
 
 use crate::api::{ApiRequest, ApiResponse};
-use crate::telnet::render;
+use crate::telnet::{render, RenderStyle};
 
 /// Parse a direction word (as the tool arg / API uses PascalCase on the wire,
 /// but tool users type lowercase) into a `Direction`.
@@ -87,9 +87,9 @@ pub fn tool_call_to_request(name: &str, args: &Value, session: u64) -> Result<Ap
 /// Render an `ApiResponse` to (text, is_error) for an MCP tool result.
 pub fn response_to_text(resp: &ApiResponse) -> (String, bool) {
     match resp {
-        ApiResponse::Connected { view, .. } => (render(view), false),
+        ApiResponse::Connected { view, .. } => (render(view, RenderStyle::Plain), false),
         ApiResponse::Ok { messages } => {
-            let text = render(messages);
+            let text = render(messages, RenderStyle::Plain);
             (
                 if text.is_empty() {
                     "OK".to_string()
