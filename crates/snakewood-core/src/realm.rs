@@ -13,6 +13,11 @@ pub struct Realm {
     /// Message shown when a movement intent resolves to no exit at all.
     /// Data, not hardcoded, so content can reword/localize it.
     pub no_exit_message: String,
+    /// Declarative stream operators attached to this realm (authored data).
+    pub operators: Vec<crate::Operator>,
+    /// Message shown when a RateLimit operator drops an intent and the operator
+    /// carries no explicit `deny` text. Data, not hardcoded.
+    pub rate_limit_message: String,
 }
 
 impl Realm {
@@ -22,6 +27,8 @@ impl Realm {
             mobs: BTreeMap::new(),
             rules: Vec::new(),
             no_exit_message: "You see no exit in that direction.".to_string(),
+            operators: Vec::new(),
+            rate_limit_message: "You can't do that yet.".to_string(),
         }
     }
 
@@ -107,5 +114,12 @@ mod tests {
         assert_eq!(realm.no_exit_message, "You see no exit in that direction.");
         // Default delegates to new(World::default())
         assert_eq!(Realm::default().no_exit_message, realm.no_exit_message);
+    }
+
+    #[test]
+    fn realm_starts_with_no_operators_and_default_rate_limit_message() {
+        let realm = Realm::new(World::default());
+        assert!(realm.operators.is_empty());
+        assert_eq!(realm.rate_limit_message, "You can't do that yet.");
     }
 }

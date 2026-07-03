@@ -1,4 +1,4 @@
-use crate::{EntityId, Mob, Realm, Room, Rule, World};
+use crate::{EntityId, Mob, Operator, Realm, Room, Rule, World};
 
 pub mod git;
 pub mod memory;
@@ -46,6 +46,12 @@ pub trait WorldStore {
     /// Load the global rule list (empty if none persisted).
     fn load_rules(&self) -> Result<Vec<Rule>, StoreError>;
 
+    /// Persist the operator list (authored, `world/` in git-backed impls).
+    fn save_operators(&mut self, operators: &[Operator]) -> Result<(), StoreError>;
+
+    /// Load the operator list (empty if none persisted).
+    fn load_operators(&self) -> Result<Vec<Operator>, StoreError>;
+
     /// Load the entire live realm: authored rooms + live mobs + global rules.
     fn load_realm(&self) -> Result<Realm, StoreError> {
         let mut realm = Realm::new(self.load_all()?);
@@ -53,6 +59,7 @@ pub trait WorldStore {
             realm.insert_mob(mob);
         }
         realm.rules = self.load_rules()?;
+        realm.operators = self.load_operators()?;
         Ok(realm)
     }
 
@@ -65,6 +72,7 @@ pub trait WorldStore {
             self.save_mob(mob)?;
         }
         self.save_rules(&realm.rules)?;
+        self.save_operators(&realm.operators)?;
         Ok(())
     }
 }
