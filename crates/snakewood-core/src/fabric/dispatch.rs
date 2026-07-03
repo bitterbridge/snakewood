@@ -24,7 +24,7 @@ fn apply_effects(cand: &Candidate, actor: &EntityId, out: &mut Vec<(EntityId, Pr
         match effect {
             Effect::Narrate(party, text) => {
                 if let Some(to) = recipient(*party, cand.self_id.as_ref(), actor) {
-                    out.push((to, PresentationNode::Line(text.clone())));
+                    out.push((to, PresentationNode::Line(crate::plain_text(text.clone()))));
                 }
             }
         }
@@ -40,17 +40,22 @@ fn room_presentation(
     let mut nodes = Vec::new();
     if let Some(room) = realm.world.room(room_id) {
         nodes.push(PresentationNode::RoomName(room.name.clone()));
-        nodes.push(PresentationNode::RoomDescription(room.description.clone()));
+        nodes.push(PresentationNode::RoomDescription(crate::plain_text(
+            room.description.clone(),
+        )));
         nodes.push(PresentationNode::Exits(
             room.exits.keys().cloned().collect(),
         ));
-        let mut occupants: Vec<String> = realm
-            .mobs_in_room(room_id)
-            .iter()
-            .filter(|m| &m.id != viewer)
-            .map(|m| m.name.clone())
-            .collect();
-        occupants.sort();
+        let occupants: Vec<crate::Span> = {
+            let mut names: Vec<String> = realm
+                .mobs_in_room(room_id)
+                .iter()
+                .filter(|m| &m.id != viewer)
+                .map(|m| m.name.clone())
+                .collect();
+            names.sort();
+            names.into_iter().map(crate::Span::actor).collect()
+        };
         nodes.push(PresentationNode::Occupants(occupants));
     }
     nodes
@@ -123,7 +128,7 @@ pub fn dispatch(realm: &mut Realm, intent: Intent) -> Dispatch {
                 Decision::Unresolved => {
                     out.messages.push((
                         actor.clone(),
-                        PresentationNode::Denied(realm.no_exit_message.clone()),
+                        PresentationNode::Denied(crate::plain_text(realm.no_exit_message.clone())),
                     ));
                 }
             }
@@ -222,7 +227,7 @@ mod tests {
             Some("snakewood/clearing")
         );
         assert!(out.messages.iter().any(|(_, n)| *n
-            == PresentationNode::Denied("You see no exit in that direction.".to_string())));
+            == PresentationNode::Denied(crate::plain_text("You see no exit in that direction."))));
         assert!(out.events.is_empty());
     }
 
@@ -238,7 +243,7 @@ mod tests {
             },
         );
         assert!(out.messages.iter().any(|(_, n)| *n
-            == PresentationNode::Denied("There's nothing that way, friend.".to_string())));
+            == PresentationNode::Denied(crate::plain_text("There's nothing that way, friend."))));
     }
 
     #[test]

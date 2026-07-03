@@ -1,4 +1,4 @@
-use snakewood_core::{Direction, PresentationNode};
+use snakewood_core::{Direction, PresentationNode, Span};
 
 fn direction_name(dir: &Direction) -> &'static str {
     match dir {
@@ -11,10 +11,14 @@ fn direction_name(dir: &Direction) -> &'static str {
     }
 }
 
+fn spans_text(spans: &[Span]) -> String {
+    spans.iter().map(|s| s.text.as_str()).collect()
+}
+
 fn render_node(node: &PresentationNode) -> Option<String> {
     match node {
         PresentationNode::RoomName(s) => Some(s.clone()),
-        PresentationNode::RoomDescription(s) => Some(s.clone()),
+        PresentationNode::RoomDescription(spans) => Some(spans_text(spans)),
         PresentationNode::Exits(dirs) => {
             if dirs.is_empty() {
                 Some("Exits: none".to_string())
@@ -23,15 +27,16 @@ fn render_node(node: &PresentationNode) -> Option<String> {
                 Some(format!("Exits: {}", names.join(", ")))
             }
         }
-        PresentationNode::Occupants(names) => {
-            if names.is_empty() {
+        PresentationNode::Occupants(spans) => {
+            if spans.is_empty() {
                 None // don't render an empty "Also here:" line
             } else {
+                let names: Vec<&str> = spans.iter().map(|s| s.text.as_str()).collect();
                 Some(format!("Also here: {}", names.join(", ")))
             }
         }
-        PresentationNode::Line(s) => Some(s.clone()),
-        PresentationNode::Denied(s) => Some(s.clone()),
+        PresentationNode::Line(spans) => Some(spans_text(spans)),
+        PresentationNode::Denied(spans) => Some(spans_text(spans)),
         PresentationNode::Prompt => Some(">".to_string()),
     }
 }
@@ -56,9 +61,9 @@ mod tests {
     fn renders_room_view() {
         let nodes = vec![
             PresentationNode::RoomName("Snakewood Clearing".to_string()),
-            PresentationNode::RoomDescription("A clearing.".to_string()),
+            PresentationNode::RoomDescription(snakewood_core::plain_text("A clearing.")),
             PresentationNode::Exits(vec![Direction::North, Direction::Down]),
-            PresentationNode::Occupants(vec!["a goblin".to_string()]),
+            PresentationNode::Occupants(vec![Span::actor("a goblin")]),
         ];
         let text = render(&nodes);
         assert_eq!(
@@ -82,8 +87,12 @@ mod tests {
     #[test]
     fn renders_denied_and_line() {
         let nodes = vec![
-            PresentationNode::Denied("You see no exit in that direction.".to_string()),
-            PresentationNode::Line("The goblin blocks your way north.".to_string()),
+            PresentationNode::Denied(snakewood_core::plain_text(
+                "You see no exit in that direction.",
+            )),
+            PresentationNode::Line(snakewood_core::plain_text(
+                "The goblin blocks your way north.",
+            )),
         ];
         assert_eq!(
             render(&nodes),

@@ -155,7 +155,10 @@ impl Engine {
                 }
                 Admission::Drop { deny } => {
                     let text = deny.unwrap_or_else(|| self.realm.rate_limit_message.clone());
-                    batched.push((actor, PresentationNode::Denied(text)));
+                    batched.push((
+                        actor,
+                        PresentationNode::Denied(snakewood_core::plain_text(text)),
+                    ));
                 }
             }
         }
@@ -426,7 +429,7 @@ mod tests {
         // The dropped move produced a Denied node with the configured text.
         assert!(out
             .iter()
-            .any(|n| *n == PresentationNode::Denied("Too fast.".to_string())));
+            .any(|n| *n == PresentationNode::Denied(snakewood_core::plain_text("Too fast."))));
     }
 
     #[test]
@@ -547,9 +550,11 @@ mod tests {
         );
         e.tick();
         let view = e.poll(sid);
-        assert!(view.contains(&PresentationNode::Denied(
-            "You see no exit in that direction.".to_string()
-        )));
+        assert!(
+            view.contains(&PresentationNode::Denied(snakewood_core::plain_text(
+                "You see no exit in that direction."
+            )))
+        );
     }
 
     #[test]

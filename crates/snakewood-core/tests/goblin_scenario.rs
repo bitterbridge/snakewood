@@ -95,7 +95,9 @@ fn conscious_goblin_blocks_north_with_salient_message() {
     // The salient (Participant) narration is the goblin's, delivered to the actor.
     assert!(out.messages.contains(&(
         id("snakewood/pc/nathan"),
-        PresentationNode::Line("The goblin blocks your way north.".to_string())
+        PresentationNode::Line(snakewood_core::plain_text(
+            "The goblin blocks your way north."
+        ))
     )));
 }
 
@@ -130,7 +132,8 @@ fn incapacitated_goblin_stops_blocking_no_wiring_change() {
         to: id("snakewood/old-well"),
     }));
     // The goblin's block message is absent.
-    assert!(!out.messages.iter().any(
-        |(_, n)| *n == PresentationNode::Line("The goblin blocks your way north.".to_string())
-    ));
+    assert!(!out.messages.iter().any(|(_, n)| *n
+        == PresentationNode::Line(snakewood_core::plain_text(
+            "The goblin blocks your way north."
+        ))));
 }

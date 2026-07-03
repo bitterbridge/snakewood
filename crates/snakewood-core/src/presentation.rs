@@ -42,11 +42,11 @@ pub fn plain_text(text: impl Into<String>) -> Vec<Span> {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum PresentationNode {
     RoomName(String),
-    RoomDescription(String),
+    RoomDescription(Vec<Span>),
     Exits(Vec<Direction>),
-    Occupants(Vec<String>),
-    Line(String),
-    Denied(String),
+    Occupants(Vec<Span>),
+    Line(Vec<Span>),
+    Denied(Vec<Span>),
     Prompt,
 }
 
@@ -62,7 +62,7 @@ mod tests {
         let back: PresentationNode = ron::from_str(&text).unwrap();
         assert_eq!(back, node);
 
-        let line = PresentationNode::Line("hello".to_string());
+        let line = PresentationNode::Line(plain_text("hello"));
         let back2: PresentationNode = ron::from_str(&ron::ser::to_string(&line).unwrap()).unwrap();
         assert_eq!(back2, line);
     }

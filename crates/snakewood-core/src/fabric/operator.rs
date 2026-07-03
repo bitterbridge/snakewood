@@ -201,7 +201,7 @@ mod tests {
             PresentationKind::RoomName
         );
         assert_eq!(
-            PresentationKind::of(&PresentationNode::Denied("no".into())),
+            PresentationKind::of(&PresentationNode::Denied(crate::plain_text("no"))),
             PresentationKind::Denied
         );
         assert_eq!(
@@ -410,18 +410,18 @@ mod tests {
     fn coalesce_leaves_unconfigured_kinds_untouched_and_ordered() {
         let nodes = vec![
             PresentationNode::RoomName("A".into()),
-            PresentationNode::Line("hi".into()),
+            PresentationNode::Line(crate::plain_text("hi")),
             PresentationNode::RoomName("B".into()),
-            PresentationNode::Line("bye".into()),
+            PresentationNode::Line(crate::plain_text("bye")),
         ];
         // Only RoomName is coalesced; both Lines survive in order.
         let out = coalesce(nodes, &[PresentationKind::RoomName]);
         assert_eq!(
             out,
             vec![
-                PresentationNode::Line("hi".into()),
+                PresentationNode::Line(crate::plain_text("hi")),
                 PresentationNode::RoomName("B".into()),
-                PresentationNode::Line("bye".into()),
+                PresentationNode::Line(crate::plain_text("bye")),
             ]
         );
     }
