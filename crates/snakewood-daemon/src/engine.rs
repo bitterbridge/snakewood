@@ -147,10 +147,72 @@ impl Engine {
         self.tick
     }
 
-    /// Drain the intent queue for the current tick. (Temporary minimal stub:
-    /// fully implemented in Task 2.2.)
+    /// Drain the intent queue for the current tick: gate each intent through
+    /// RateLimit operators, dispatch the admitted ones, coalesce the resulting
+    /// directed presentation per recipient, and flush to session outboxes.
     fn drain(&mut self) {
-        let _queue = std::mem::take(&mut self.intent_queue);
+        let queue = std::mem::take(&mut self.intent_queue);
+        let tick = self.tick;
+        let mut batched: Vec<(EntityId, PresentationNode)> = Vec::new();
+
+        for (_sid, intent) in queue {
+            let actor = intent.actor().clone();
+            let class = IntentClass::of(&intent);
+            match self
+                .rate_limiter
+                .admit(&self.realm.operators, class, &actor, tick)
+            {
+                Admission::Admit => {
+                    let result = dispatch(&mut self.realm, intent);
+                    batched.extend(result.messages);
+                    // Notify broadcast to bystanders is deferred to M3; events
+                    // stay in `result.events` unused here.
+                }
+                Admission::Drop { deny } => {
+                    let text = deny.unwrap_or_else(|| self.realm.rate_limit_message.clone());
+                    batched.push((actor, PresentationNode::Denied(text)));
+                }
+            }
+        }
+
+        // Kinds any Coalesce operator targets (union across all Coalesce ops).
+        let coalesced_kinds: Vec<PresentationKind> = self
+            .realm
+            .operators
+            .iter()
+            .filter_map(|op| match op {
+                Operator::Coalesce { on, .. } => Some(on.clone()),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+
+        // Distinct recipients in first-seen order (deterministic).
+        let mut recipients: Vec<EntityId> = Vec::new();
+        for (r, _) in &batched {
+            if !recipients.contains(r) {
+                recipients.push(r.clone());
+            }
+        }
+
+        for recipient in recipients {
+            let nodes: Vec<PresentationNode> = batched
+                .iter()
+                .filter(|(r, _)| *r == recipient)
+                .map(|(_, n)| n.clone())
+                .collect();
+            let nodes = if coalesced_kinds.is_empty() {
+                nodes
+            } else {
+                coalesce(nodes, &coalesced_kinds)
+            };
+            for session in self.sessions.values_mut() {
+                if session.actor == recipient {
+                    session.outbox.extend(nodes.iter().cloned());
+                }
+            }
+        }
+
         self.drain_count += 1;
     }
 
@@ -262,7 +324,10 @@ impl Engine {
 mod tests {
     use super::*;
     use crate::ManualClock;
-    use snakewood_core::{Direction, Flag, GitStore, Intent, Mob, PresentationNode, Room, World};
+    use snakewood_core::{
+        Direction, Flag, GitStore, Intent, IntentClass, Mob, Operator, PresentationKind,
+        PresentationNode, Room, Scope, World,
+    };
     use std::collections::BTreeSet;
     use tempfile::tempdir;
 
@@ -332,6 +397,114 @@ mod tests {
         let mut e = Engine::new(realm, Box::new(ManualClock::new(0)));
         let sid = e.connect(actor.clone());
         (e, sid, actor)
+    }
+
+    fn engine_with_actor_and_ops(ops: Vec<Operator>) -> (Engine, SessionId, EntityId) {
+        let (mut e, sid, actor) = engine_with_actor();
+        e.realm_mut().operators = ops;
+        (e, sid, actor)
+    }
+
+    #[test]
+    fn drain_rate_limits_moves_across_ticks() {
+        // north then south is a round trip between the two rooms.
+        let ops = vec![Operator::RateLimit {
+            on: IntentClass::Move,
+            per_ticks: 2,
+            scope: Scope::PerActor,
+            deny: Some("Too fast.".to_string()),
+        }];
+        let (mut e, sid, actor) = engine_with_actor_and_ops(ops);
+
+        // Tick 1: enqueue two moves (N then S). Only the first is admitted.
+        e.enqueue(
+            sid,
+            Intent::Move {
+                actor: actor.clone(),
+                direction: Direction::North,
+            },
+        );
+        e.enqueue(
+            sid,
+            Intent::Move {
+                actor: actor.clone(),
+                direction: Direction::South,
+            },
+        );
+        e.tick();
+        // First move (north) committed; second dropped -> still at old-well.
+        assert_eq!(
+            e.realm().mob_location(&actor).map(|r| r.as_str()),
+            Some("snakewood/old-well")
+        );
+        let out = e.poll(sid);
+        // The dropped move produced a Denied node with the configured text.
+        assert!(out
+            .iter()
+            .any(|n| *n == PresentationNode::Denied("Too fast.".to_string())));
+    }
+
+    #[test]
+    fn drain_coalesces_repeated_room_views_in_one_tick() {
+        // No rate limit; coalesce room-view kinds. Two Looks in one tick each emit a
+        // full room view; they collapse to one. (Uses Look, not Move, so it works
+        // with the one-way two-room test world.)
+        let ops = vec![Operator::Coalesce {
+            on: vec![
+                PresentationKind::RoomName,
+                PresentationKind::RoomDescription,
+                PresentationKind::Exits,
+                PresentationKind::Occupants,
+            ],
+            within_ticks: 1,
+            scope: Scope::PerActor,
+        }];
+        let (mut e, sid, actor) = engine_with_actor_and_ops(ops);
+        e.enqueue(
+            sid,
+            Intent::Look {
+                actor: actor.clone(),
+            },
+        );
+        e.enqueue(
+            sid,
+            Intent::Look {
+                actor: actor.clone(),
+            },
+        );
+        e.tick();
+        let out = e.poll(sid);
+        // Exactly one RoomName survives, naming the actor's room.
+        let room_names: Vec<&PresentationNode> = out
+            .iter()
+            .filter(|n| matches!(n, PresentationNode::RoomName(_)))
+            .collect();
+        assert_eq!(room_names.len(), 1, "views not coalesced: {out:?}");
+        assert_eq!(
+            room_names[0],
+            &PresentationNode::RoomName("Snakewood Clearing".to_string())
+        );
+    }
+
+    #[test]
+    fn drain_with_no_operators_dispatches_normally() {
+        let (mut e, sid, actor) = engine_with_actor();
+        e.enqueue(
+            sid,
+            Intent::Move {
+                actor: actor.clone(),
+                direction: Direction::North,
+            },
+        );
+        e.tick();
+        assert_eq!(
+            e.realm().mob_location(&actor).map(|r| r.as_str()),
+            Some("snakewood/old-well")
+        );
+        assert!(e
+            .poll(sid)
+            .iter()
+            .any(|n| *n == PresentationNode::RoomName("The Old Well".to_string())));
     }
 
     #[test]
