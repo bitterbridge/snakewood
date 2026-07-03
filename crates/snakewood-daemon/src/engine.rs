@@ -23,6 +23,7 @@ pub struct Engine {
     clock: Box<dyn Clock>,
     sessions: BTreeMap<SessionId, Session>,
     next_session: u64,
+    next_anon: u64,
     tick: u64,
     store: Option<Box<dyn WorldStore>>,
     snapshot_interval: Option<i64>,
@@ -36,6 +37,7 @@ impl Engine {
             clock,
             sessions: BTreeMap::new(),
             next_session: 0,
+            next_anon: 0,
             tick: 0,
             store: None,
             snapshot_interval: None,
@@ -54,6 +56,17 @@ impl Engine {
     /// Remove a session, returning it if present.
     pub fn disconnect(&mut self, id: SessionId) -> Option<Session> {
         self.sessions.remove(&id)
+    }
+
+    /// Mint the next globally-unique anonymous-player sequence number.
+    ///
+    /// Shared across all transports (telnet, structured API) so two
+    /// concurrently-connecting anonymous players never collide on the same
+    /// `player/anon-N` id.
+    pub fn mint_anon_seq(&mut self) -> u64 {
+        let n = self.next_anon;
+        self.next_anon += 1;
+        n
     }
 
     pub fn session_actor(&self, id: SessionId) -> Option<&EntityId> {

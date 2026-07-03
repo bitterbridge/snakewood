@@ -1,4 +1,4 @@
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -11,18 +11,15 @@ use crate::Engine;
 
 /// Accept connections forever, handling each on a local task.
 pub async fn serve(listener: TcpListener, engine: Rc<RefCell<Engine>>, start_room: EntityId) {
-    let seq = Rc::new(Cell::new(0u64));
     loop {
         let (stream, _addr) = match listener.accept().await {
             Ok(pair) => pair,
             Err(_) => continue,
         };
-        let n = seq.get();
-        seq.set(n + 1);
         let engine = engine.clone();
         let start_room = start_room.clone();
         tokio::task::spawn_local(async move {
-            let _ = handle_connection(stream, engine, start_room, n).await;
+            let _ = handle_connection(stream, engine, start_room).await;
         });
     }
 }
@@ -32,7 +29,6 @@ async fn handle_connection(
     stream: TcpStream,
     engine: Rc<RefCell<Engine>>,
     start_room: EntityId,
-    seq: u64,
 ) -> std::io::Result<()> {
     let (read_half, mut write_half) = stream.into_split();
     let mut lines = BufReader::new(read_half).lines();
@@ -40,7 +36,7 @@ async fn handle_connection(
     // Spawn the player up front so cleanup can always run.
     let (sid, actor) = {
         let mut e = engine.borrow_mut();
-        spawn_player(&mut e, &start_room, seq)
+        spawn_player(&mut e, &start_room)
     };
 
     // Run the whole session; capture the result so we can always clean up.

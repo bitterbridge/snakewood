@@ -19,13 +19,10 @@ pub fn handle_api_request(
     engine: &mut Engine,
     req: ApiRequest,
     start_room: &EntityId,
-    next_player: &mut u64,
 ) -> ApiResponse {
     match req {
         ApiRequest::Connect => {
-            let seq = *next_player;
-            *next_player += 1;
-            let (sid, actor) = spawn_player(engine, start_room, seq);
+            let (sid, actor) = spawn_player(engine, start_room);
             engine.submit(
                 sid,
                 Intent::Look {
@@ -134,8 +131,7 @@ mod tests {
     #[test]
     fn connect_returns_session_and_start_room_view() {
         let mut e = engine();
-        let mut seq = 0;
-        let resp = handle_api_request(&mut e, ApiRequest::Connect, &start(), &mut seq);
+        let resp = handle_api_request(&mut e, ApiRequest::Connect, &start());
         match resp {
             ApiResponse::Connected {
                 session,
@@ -150,15 +146,13 @@ mod tests {
             }
             other => panic!("expected Connected, got {other:?}"),
         }
-        assert_eq!(seq, 1);
     }
 
     #[test]
     fn move_returns_new_room_view() {
         let mut e = engine();
-        let mut seq = 0;
         let ApiResponse::Connected { session, .. } =
-            handle_api_request(&mut e, ApiRequest::Connect, &start(), &mut seq)
+            handle_api_request(&mut e, ApiRequest::Connect, &start())
         else {
             panic!("connect failed");
         };
@@ -169,7 +163,6 @@ mod tests {
                 direction: Direction::North,
             },
             &start(),
-            &mut seq,
         );
         match resp {
             ApiResponse::Ok { messages } => {
@@ -182,9 +175,8 @@ mod tests {
     #[test]
     fn dig_then_look_shows_new_exit() {
         let mut e = engine();
-        let mut seq = 0;
         let ApiResponse::Connected { session, .. } =
-            handle_api_request(&mut e, ApiRequest::Connect, &start(), &mut seq)
+            handle_api_request(&mut e, ApiRequest::Connect, &start())
         else {
             panic!("connect failed");
         };
@@ -198,7 +190,6 @@ mod tests {
                 description: "Mossy.".to_string(),
             },
             &start(),
-            &mut seq,
         );
         match resp {
             ApiResponse::Ok { messages } => {
@@ -212,13 +203,28 @@ mod tests {
     #[test]
     fn unknown_session_is_error() {
         let mut e = engine();
-        let mut seq = 0;
-        let resp = handle_api_request(
-            &mut e,
-            ApiRequest::Look { session: 999 },
-            &start(),
-            &mut seq,
-        );
+        let resp = handle_api_request(&mut e, ApiRequest::Look { session: 999 }, &start());
         assert!(matches!(resp, ApiResponse::Error { .. }));
+    }
+
+    #[test]
+    fn connect_ids_are_distinct_across_calls() {
+        // Guards Fix A: two Connect requests on the same engine must never
+        // collide on the same anon id (this is what let telnet and API
+        // players stomp on each other before the fix).
+        let mut e = engine();
+        let ApiResponse::Connected { actor: actor1, .. } =
+            handle_api_request(&mut e, ApiRequest::Connect, &start())
+        else {
+            panic!("connect failed");
+        };
+        let ApiResponse::Connected { actor: actor2, .. } =
+            handle_api_request(&mut e, ApiRequest::Connect, &start())
+        else {
+            panic!("connect failed");
+        };
+        assert_eq!(actor1, "player/anon-0");
+        assert_eq!(actor2, "player/anon-1");
+        assert_ne!(actor1, actor2);
     }
 }
