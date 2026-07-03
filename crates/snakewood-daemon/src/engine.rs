@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
 use snakewood_core::{
-    dispatch, Direction, EntityId, Intent, PresentationNode, Realm, Room, StoreError, WorldStore,
+    coalesce, dispatch, Admission, Direction, EntityId, Intent, IntentClass, Operator,
+    PresentationKind, PresentationNode, RateLimiterState, Realm, Room, StoreError, WorldStore,
 };
 
 use crate::session::{Session, SessionId};
@@ -28,6 +29,9 @@ pub struct Engine {
     store: Option<Box<dyn WorldStore>>,
     snapshot_interval: Option<i64>,
     last_snapshot: i64,
+    intent_queue: Vec<(SessionId, Intent)>,
+    rate_limiter: RateLimiterState,
+    drain_count: u64,
 }
 
 impl Engine {
@@ -42,6 +46,9 @@ impl Engine {
             store: None,
             snapshot_interval: None,
             last_snapshot: 0,
+            intent_queue: Vec::new(),
+            rate_limiter: RateLimiterState::default(),
+            drain_count: 0,
         }
     }
 
@@ -101,6 +108,30 @@ impl Engine {
         }
     }
 
+    /// Authorize and buffer an intent for the next tick's drain. Like `submit`,
+    /// a session may only enqueue intents for the actor it is bound to.
+    pub fn enqueue(&mut self, id: SessionId, intent: Intent) {
+        let authorized = matches!(self.sessions.get(&id), Some(s) if &s.actor == intent.actor());
+        if !authorized {
+            return;
+        }
+        self.intent_queue.push((id, intent));
+    }
+
+    /// How many times the intent queue has been drained (one per `tick`).
+    pub fn drain_count(&self) -> u64 {
+        self.drain_count
+    }
+
+    /// Sessions whose outbox currently holds undelivered presentation.
+    pub fn sessions_with_pending(&self) -> Vec<SessionId> {
+        self.sessions
+            .iter()
+            .filter(|(_, s)| !s.outbox.is_empty())
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
     /// Drain a session's pending presentation.
     pub fn poll(&mut self, id: SessionId) -> Vec<PresentationNode> {
         match self.sessions.get_mut(&id) {
@@ -112,7 +143,15 @@ impl Engine {
     /// Advance the logical tick counter by one; returns the new count.
     pub fn tick(&mut self) -> u64 {
         self.tick += 1;
+        self.drain();
         self.tick
+    }
+
+    /// Drain the intent queue for the current tick. (Temporary minimal stub:
+    /// fully implemented in Task 2.2.)
+    fn drain(&mut self) {
+        let _queue = std::mem::take(&mut self.intent_queue);
+        self.drain_count += 1;
     }
 
     pub fn tick_count(&self) -> u64 {
@@ -384,6 +423,44 @@ mod tests {
         );
         assert!(e.realm().mob_location(&other).is_none());
         assert!(e.poll(sid).is_empty());
+    }
+
+    #[test]
+    fn enqueue_authorizes_and_buffers_without_dispatching() {
+        let (mut e, sid, actor) = engine_with_actor();
+        // Enqueue does not dispatch: position unchanged, outbox empty, queue holds 1.
+        e.enqueue(
+            sid,
+            Intent::Move {
+                actor: actor.clone(),
+                direction: Direction::North,
+            },
+        );
+        assert_eq!(
+            e.realm().mob_location(&actor).map(|r| r.as_str()),
+            Some("snakewood/clearing")
+        );
+        assert!(e.poll(sid).is_empty());
+        assert_eq!(e.drain_count(), 0);
+    }
+
+    #[test]
+    fn enqueue_rejects_foreign_actor() {
+        let (mut e, sid, _actor) = engine_with_actor();
+        let stranger = EntityId::new("snakewood/pc/stranger").unwrap();
+        e.enqueue(
+            sid,
+            Intent::Move {
+                actor: stranger,
+                direction: Direction::North,
+            },
+        );
+        // Nothing queued: a later tick drains nothing and drain_count still advances by 1.
+        let before = e.drain_count();
+        e.tick();
+        assert_eq!(e.drain_count(), before + 1);
+        // The unauthorized move never happened.
+        assert!(e.sessions_with_pending().is_empty());
     }
 
     #[test]
